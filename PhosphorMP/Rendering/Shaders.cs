@@ -5,9 +5,9 @@ namespace PhosphorMP.Rendering
 {
     public static class Shaders
     {
-        public static List<Shader[]> CompiledShaders = [];
+        public static List<Shader[]> CompiledShaders { get; private set; } = [];
         
-        public static Shader[] CompileShaders(GraphicsDevice gd, ResourceFactory factory)
+        public static Shader[] CompileShaders(GraphicsDevice gd, ResourceFactory factory) // TODO: Accept wc and fc as args and compile. Move shader code somewhere else.
         {
             string vertexCode = @"
             #version 450

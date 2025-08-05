@@ -16,16 +16,5 @@
       <PackageReference Include="Veldrid.SPIRV" Version="1.0.15" />
       <PackageReference Include="Veldrid.StartupUtilities" Version="4.9.0" />
     </ItemGroup>
-
-    <ItemGroup>
-      <Folder Include="Rendering\Utils\" />
-    </ItemGroup>
-
-    <ItemGroup>
-      <None Remove="Assets\NotoSansSymbols-VariableFont_wght.ttf" />
-      <Resource Include="Assets\NotoSansSymbols-VariableFont_wght.ttf">
-        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-      </Resource>
-    </ItemGroup>
-
+    
 </Project>

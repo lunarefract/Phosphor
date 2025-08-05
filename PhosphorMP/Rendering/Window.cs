@@ -4,7 +4,7 @@ using Veldrid.StartupUtilities;
 
 namespace PhosphorMP.Rendering
 {
-    public class Window
+    public class Window // TODO: Window Title Suffix field
     {
         public static Window Singleton { get; private set; }
         public Sdl2Window BaseSdl2Window { get; private set; }
@@ -15,7 +15,10 @@ namespace PhosphorMP.Rendering
             {
                 Singleton = this;
             }
-            // Else throw exception maybe
+            else
+            {
+                throw new Exception("Singleton already exists, there must be only one window instance.");
+            }
             Init();
         }
 

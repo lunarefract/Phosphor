@@ -52,14 +52,17 @@ namespace PhosphorMP.Parser
             Console.WriteLine("Parsing: " + FileName);
             _stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             _reader = new BinaryReader(_stream);
+            ParserStats.Stage = ParserStage.CheckingHeader;
             ParseHeader();
             FindTracks();
+            ParserStats.Stage = ParserStage.PreparingForStreaming;
             
-            if (true)
+            if (SerializableConfig.Singleton.Parser.MultiThreadedParsing)
             {
                 Parallel.ForEach(Tracks, track =>
                 {
                     track.ParseEventsFast();
+                    ParserStats.PreparingForStreamingCount++;
                 });
             }
             else
@@ -67,14 +70,19 @@ namespace PhosphorMP.Parser
                 foreach (var track in Tracks)
                 {
                     track.ParseEventsFast();
+                    ParserStats.PreparingForStreamingCount++;
                 }
             }
             
-            MidiTrack.TempoChanges.Sort((a, b) => a.Tick.CompareTo(b.Tick));
+            MidiTrack.TempoChanges.Sort((a, b) => a.Tick.CompareTo(b.Tick)); // TODO: Add parser stage for this
 
             Length = TimeSpan.FromSeconds(GetTimeInSeconds(TickCount));
             Utils.Utils.FreeGarbageHarder();
             Console.WriteLine($"Parsed with {TrackCount} (Header: {TrackCountHeader}) tracks, {TickCount} ticks ({Utils.Utils.FormatTime(Length)}) and {MidiTrack.TempoChanges.Count} tempo changes with PPQ of {TimeDivision} and {NoteCount} notes, streaming prepared.");
+            ParserStats.Stage = ParserStage.Streaming;
+            ParserStats.CreatedTrackClasses = 0;
+            ParserStats.FoundTrackPositions = 0;
+            ParserStats.PreparingForStreamingCount = 0;
         }
 
         public List<MidiEvent> ParseEventsBetweenTicks(ulong startingTick, ulong endingTick)
@@ -162,7 +170,7 @@ namespace PhosphorMP.Parser
                 // Use last known tempo
                 var lastTempo = MidiTrack.TempoChanges.Count > 0 
                     ? MidiTrack.TempoChanges.Last() 
-                    : new TempoChangeEvent(0, 500000, 120.0);
+                    : new TempoChangeEvent(0, 500000);
                 ulong deltaTicks = targetTick - lastTick;
                 double seconds = (deltaTicks * (uint)lastTempo.MicrosecondsPerQuarterNote) / (ppq * 1_000_000.0);
                 totalTimeSeconds += seconds;
@@ -193,6 +201,7 @@ namespace PhosphorMP.Parser
 
         private void FindTracks()
         {
+            ParserStats.Stage = ParserStage.FindingTracksPositions;
             Dictionary<long, int> trackPositions = [];
             while (_reader.BaseStream.Position < _reader.BaseStream.Length)
             {
@@ -208,15 +217,31 @@ namespace PhosphorMP.Parser
                 long trackStart = _reader.BaseStream.Position;
                 
                 trackPositions.Add(trackStart, length);
+                ParserStats.FoundTrackPositions++;
                 // Advance stream position to the end of the track chunk
                 _reader.BaseStream.Seek(trackStart + length, SeekOrigin.Begin);
             }
+            
             Console.WriteLine($"Found {trackPositions.Count} track positions, now creating MidiTrack classes.");
             
-            foreach (var trackPosition in trackPositions)
+            ParserStats.Stage = ParserStage.CreatingTrackClasses;
+            if (SerializableConfig.Singleton.Parser.MultiThreadedParsing)
             {
-                MidiTrack track = new(FilePath, trackPosition.Key, trackPosition.Value);
-                Tracks.Add(track);
+                Parallel.ForEach(trackPositions, trackPosition =>
+                {
+                    MidiTrack track = new(FilePath, trackPosition.Key, trackPosition.Value);
+                    Tracks.Add(track);
+                    ParserStats.CreatedTrackClasses++;
+                });
+            }
+            else
+            {
+                foreach (var trackPosition in trackPositions)
+                {
+                    MidiTrack track = new(FilePath, trackPosition.Key, trackPosition.Value);
+                    Tracks.Add(track);
+                    ParserStats.CreatedTrackClasses++;
+                }
             }
         }
 
@@ -256,6 +281,7 @@ namespace PhosphorMP.Parser
                 track.Dispose();
             }
             Utils.Utils.FreeGarbageHarder();
+            ParserStats.Stage = ParserStage.Idle;
             GC.SuppressFinalize(this);
         }
     }
