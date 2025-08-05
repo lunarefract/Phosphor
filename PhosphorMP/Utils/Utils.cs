@@ -18,6 +18,14 @@ namespace PhosphorMP.Utils
             GC.WaitForPendingFinalizers();  // Waits for finalizers to complete (if any objects need it).
             GC.Collect();                   // Optional second pass to collect finalized objects.
         }
+        
+        public static string GetPercentage(double part, double total)
+        {
+            if (total == 0)
+                return "N/A";
+            double percentage = (part / total) * 100;
+            return $"{percentage:F2}%";
+        }
     }
 }
 

@@ -22,7 +22,7 @@ namespace PhosphorMP.Rendering
         public ImGuiRenderer ImGuiRendererFramebufferSpecific { get; private set; }
         public Sdl2Window BaseWindow { get; private set; }
         public float DeltaTime { get; private set; }
-        public bool Playing = false;
+        public bool Playing { get; set; } = false;
         public MidiFile CurrentMidiFile { get; private set; }
         public ulong PassedNotes = 0;
         public ulong CurrentTick = 0;
@@ -38,6 +38,8 @@ namespace PhosphorMP.Rendering
         private string _filePathInput = "";
         private Stopwatch _playbackTimer = new();
         
+        //TODO: Move of some of the player logic to different file ^
+        
         public Renderer()
         {
             if (Singleton == null)
@@ -46,7 +48,10 @@ namespace PhosphorMP.Rendering
                 throw new Exception("Renderer already initialized.");
             
             Init();
-            CurrentMidiFile = new MidiFile(@"/run/media/memfrag/00AAB9F3AAB9E576/BA.DECIMATIONMODE.mid"); // TODO: Remove in Release
+            _ = Task.Run(() =>
+            {
+                CurrentMidiFile = new MidiFile(@"/run/media/memfrag/00AAB9F3AAB9E576/BA.DECIMATIONMODE.mid"); // TODO: Remove in Release
+            });
         }
         
         private void Init()
@@ -225,6 +230,7 @@ namespace PhosphorMP.Rendering
             }
             
             ImGui.Text($"FPS: {(1f / DeltaTime):0.0}");
+            ImGui.Text($"Heap Memory Usage: {GC.GetTotalMemory(false) / 1024f / 1024f:F2} MB");
             ImGui.Text($"Bass Rendertime: {Bass.CPUUsage}");
             ImGui.End();
         }
@@ -255,6 +261,42 @@ namespace PhosphorMP.Rendering
             {
                 _showFileDialog = true;
                 ImGui.OpenPopup("Load File");
+            }
+
+            bool parserPopup = ParserStats.Stage != ParserStage.Idle && ParserStats.Stage != ParserStage.Streaming;            
+            if (parserPopup)
+            {
+                if (ImGui.BeginPopupModal("Parsing", ref parserPopup, ImGuiWindowFlags.AlwaysAutoResize))
+                {
+                    if (ParserStats.Stage == ParserStage.CheckingHeader)
+                    {
+                        ImGui.Text("[1 / 4] Checking header data...");
+                    }
+                    if (ParserStats.Stage == ParserStage.FindingTracksPositions)
+                    {
+                        ImGui.Text($"[2 / 4] Finding track positions... 0 / {ParserStats.FoundTrackPositions}");
+                    }
+                    if (ParserStats.Stage == ParserStage.CreatingTrackClasses)
+                    {
+                        ImGui.Text($"[3 / 4] Finding track positions... {Utils.Utils.GetPercentage(ParserStats.CreatedTrackClasses, ParserStats.FoundTrackPositions)} | {ParserStats.CreatedTrackClasses} / {ParserStats.FoundTrackPositions}");
+                    }
+
+                    if (ParserStats.Stage == ParserStage.PreparingForStreaming)
+                    {
+                        ImGui.Text($"[4 / 4] Preparing for streaming... {Utils.Utils.GetPercentage(ParserStats.PreparingForStreamingCount, ParserStats.CreatedTrackClasses)} | {ParserStats.PreparingForStreamingCount} / {ParserStats.CreatedTrackClasses}");
+                    }
+                    ImGui.Text($"Heap Memory Usage: {GC.GetTotalMemory(false) / 1024f / 1024f:F2} MB");
+                    
+                    if (ImGui.Button("Cancel"))
+                    {
+                        ImGui.CloseCurrentPopup();
+                        CurrentMidiFile.Dispose();
+                        CurrentMidiFile = null;
+                    }
+
+                    ImGui.EndPopup();
+                }
+                ImGui.OpenPopup("Parsing");
             }
 
             if (_showFileDialog)

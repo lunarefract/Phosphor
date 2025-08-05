@@ -231,7 +231,7 @@ namespace PhosphorMP.Parser
                         int tempo = (metaData[0] << 16) | (metaData[1] << 8) | metaData[2];
                         double bpm = 60_000_000.0 / tempo;
                         
-                        TempoChanges.Add(new TempoChangeEvent(ticks, tempo, bpm));
+                        TempoChanges.Add(new TempoChangeEvent(ticks, tempo));
                     }
                 }
                 else if (statusByte >= 0x80 && statusByte <= 0xEF) // MIDI channel message
