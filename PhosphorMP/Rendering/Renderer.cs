@@ -21,22 +21,17 @@ namespace PhosphorMP.Rendering
         public ImGuiRenderer ImGuiRendererSwapchain { get; private set; }
         public ImGuiRenderer ImGuiRendererFramebufferSpecific { get; private set; }
         public Sdl2Window BaseWindow { get; private set; }
-        public float DeltaTime { get; private set; }
-        public bool Playing { get; set; } = false;
-        public MidiFile CurrentMidiFile { get; private set; }
-        public ulong PassedNotes = 0;
-        public ulong CurrentTick = 0;
+        public Vector3 ClearColor = new Vector3(0f, 0f, 0f); // Black by default (RGB)        
         
         private DeviceBuffer _vertexBuffer;
         private DeviceBuffer _uniformBuffer;
         private ResourceSet _resourceSet;
         private Pipeline _pipeline;
-        private Stopwatch _stopwatch = new Stopwatch(); // TODO: Do NOT use stopwatches because it's using system clock (I need to make internal clock), can't make rendering pipeline with it
-        private Vector3 _clearColor = new Vector3(0f, 0f, 0f); // Black by default (RGB)
-        private double _tickRemainder = 0.0;
+        private Stopwatch _stopwatch = new();
+
         private bool _showFileDialog = false;
         private string _filePathInput = "";
-        private Stopwatch _playbackTimer = new();
+        private Logic Logic => Logic.Singleton;
         
         //TODO: Move of some of the player logic to different file ^
         
@@ -50,16 +45,14 @@ namespace PhosphorMP.Rendering
             Init();
             _ = Task.Run(() =>
             {
-                CurrentMidiFile = new MidiFile(@"/run/media/memfrag/00AAB9F3AAB9E576/BA.DECIMATIONMODE.mid"); // TODO: Remove in Release
+                Logic.CurrentMidiFile = new MidiFile(@"/run/media/memfrag/00AAB9F3AAB9E576/BA.DECIMATIONMODE.mid"); // TODO: Remove in Release
             });
         }
         
         private void Init()
         {
             BaseWindow = Window.Singleton.BaseSdl2Window;
-            if (BaseWindow == null)
-                throw new NullReferenceException("Window is null");
-
+            if (BaseWindow == null) throw new NullReferenceException("Window is null");
             GraphicsDevice = VeldridStartup.CreateGraphicsDevice(BaseWindow, GraphicsBackend.OpenGL);
             ResourceFactory = GraphicsDevice.ResourceFactory;
             CommandList = ResourceFactory.CreateCommandList();
@@ -70,8 +63,6 @@ namespace PhosphorMP.Rendering
             CreatePipeline();
 
             Console.WriteLine("Using device: " + GraphicsDevice.DeviceName);
-            
-            _stopwatch.Start();
         }
 
         private void CreateVertexBuffer()
@@ -128,23 +119,17 @@ namespace PhosphorMP.Rendering
 
         public void Render()
         {
-            DeltaTime = (float)_stopwatch.Elapsed.TotalSeconds;
             _stopwatch.Restart();
 
             var input = BaseWindow.PumpEvents();
 
             // Update ImGui contexts
-            ImGuiRendererSwapchain.Update(DeltaTime, input);
+            ImGuiRendererSwapchain.Update(Program.DeltaTime, input);
             //ImGuiRendererFramebufferSpecific.Update(DeltaTime);
-
-            if (CurrentMidiFile != null)
-            {
-                PlaybackLogic();
-            }
             
             CommandList.Begin();
             CommandList.SetFramebuffer(GraphicsDevice.SwapchainFramebuffer);
-            CommandList.ClearColorTarget(0, new RgbaFloat(_clearColor.X, _clearColor.Y, _clearColor.Z, 1f));
+            CommandList.ClearColorTarget(0, new RgbaFloat(ClearColor.X, ClearColor.Y, ClearColor.Z, 1f));
 
             CommandList.SetPipeline(_pipeline);
             CommandList.SetVertexBuffer(0, _vertexBuffer);
@@ -152,109 +137,58 @@ namespace PhosphorMP.Rendering
             
             RenderOverlay();
             ImGuiRendererFramebufferSpecific.Render(GraphicsDevice, CommandList);
-            RenderUI();
+            RenderUi();
             ImGuiRendererSwapchain.Render(GraphicsDevice, CommandList);
 
             CommandList.End();
             GraphicsDevice.SubmitCommands(CommandList);
             GraphicsDevice.SwapBuffers();
         }
+        
 
-        private void PlaybackLogic()
-        {
-            if (!Playing || CurrentMidiFile == null)
-                return;
-
-            if (CurrentTick >= CurrentMidiFile.TickCount)
-            {
-                Playing = false;
-                return;
-            }
-            
-            int tempo = CurrentMidiFile.GetCurrentTempoAtTick(CurrentTick);
-            double microsecondsPerTick = tempo / (double)CurrentMidiFile.TimeDivision;
-
-            double totalTicks = (DeltaTime * 1_000_000) / microsecondsPerTick + _tickRemainder;
-            ulong ticksToAdvance = (ulong)totalTicks;
-            _tickRemainder = totalTicks - ticksToAdvance;
-
-            if (ticksToAdvance == 0)
-                return;
-            
-            // Parse new events between last tick and now + bar
-            ulong from = CurrentMidiFile.LastParsedTick;
-            ulong to = CurrentTick;
-            var events = CurrentMidiFile.ParseEventsBetweenTicks(from, to);
-
-            CurrentTick += ticksToAdvance;
-            
-            foreach (var midiEvent in events)
-            {
-                if (midiEvent.GetEventType() == MidiEventType.Channel && midiEvent.Data?.Length >= 2)
-                {
-                    byte status = midiEvent.StatusByte;
-                    byte velocity = midiEvent.Data[1];
-                    byte note = midiEvent.Data[0];
-                    int channel = status & 0x0F;
-
-                    //if (midiEvent.Tick == CurrentMidiFile.TickCount)
-                    {
-                        if ((status & 0xF0) == 0x90 && velocity > 0)
-                        {
-                            PassedNotes++;
-                        }
-                        else if ((status & 0xF0) == 0x80 || ((status & 0xF0) == 0x90 && velocity == 0))
-                        {
-                            
-                        }
-                    }
-                }
-            }
-        }
-
-        void RenderOverlay()
+        private void RenderOverlay()
         {
             ImGui.SetNextWindowPos(new Vector2(10, 10), ImGuiCond.Once);
             ImGui.Begin("Overlay", ImGuiWindowFlags.NoInputs | ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoFocusOnAppearing | ImGuiWindowFlags.NoNav);
-            if (CurrentMidiFile != null)
+            if (Logic.CurrentMidiFile != null)
             {
-                ImGui.Text($"Time: {Utils.Utils.FormatTime(TimeSpan.FromSeconds(CurrentMidiFile.GetTimeInSeconds(CurrentTick)))} / {Utils.Utils.FormatTime(CurrentMidiFile.Length)}");
-                ImGui.Text($"Ticks: {CurrentTick} / {CurrentMidiFile.TickCount}");
-                ImGui.Text($"Time Division: {CurrentMidiFile.TimeDivision} PPQ");
-                ImGui.Text($"Tempo: {60_000_000.0 / CurrentMidiFile.GetCurrentTempoAtTick(CurrentTick)} BPM");
-                ImGui.Text($"Notes: {PassedNotes} / {CurrentMidiFile.NoteCount}");
+                ImGui.Text($"Time: {Utils.Utils.FormatTime(TimeSpan.FromSeconds(Logic.CurrentMidiFile.GetTimeInSeconds(Logic.CurrentTick)))} / {Utils.Utils.FormatTime(Logic.CurrentMidiFile.Length)}");
+                ImGui.Text($"Ticks: {Logic.CurrentTick} / {Logic.CurrentMidiFile.TickCount}");
+                ImGui.Text($"Time Division: {Logic.CurrentMidiFile.TimeDivision} PPQ");
+                ImGui.Text($"Tempo: {60_000_000.0 / Logic.CurrentMidiFile.GetCurrentTempoAtTick(Logic.CurrentTick)} BPM");
+                ImGui.Text($"Notes: {Logic.PassedNotes} / {Logic.CurrentMidiFile.NoteCount}");
             }
             else
             {
                 ImGui.Text($"MIDI file not loaded.");
             }
             
-            ImGui.Text($"FPS: {(1f / DeltaTime):0.0}");
+            ImGui.Text($"FPS: {(1f / Program.DeltaTime):0.0}");
             ImGui.Text($"Heap Memory Usage: {GC.GetTotalMemory(false) / 1024f / 1024f:F2} MB");
             //ImGui.Text($"Bass Rendertime: {Bass.CPUUsage}");
             ImGui.End();
         }
 
-        void RenderUI()
+        private void RenderUi()
         {
             ImGui.SetNextWindowPos(new Vector2(100, 100), ImGuiCond.Once);
             ImGui.Begin("Controls", ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings);
 
             // Playback buttons
-            if (ImGui.Button(Playing ? "Pause" : "Play"))
+            if (ImGui.Button(Logic.Playing ? "Pause" : "Play"))
             {
-                if (CurrentTick == CurrentMidiFile.TickCount)
+                if (Logic.CurrentTick == Logic.CurrentMidiFile.TickCount)
                 {
-                    CurrentTick = 0;
+                    Logic.CurrentTick = 0;
                 }
-                Playing = !Playing;
+                Logic.Playing = !Logic.Playing;
             }
 
             ImGui.SameLine();
             if (ImGui.Button("Stop"))
             {
-                Playing = false;
-                CurrentTick = 0;
+                Logic.Playing = false;
+                Logic.CurrentTick = 0;
             }
             
             if (ImGui.Button("Load"))
@@ -290,8 +224,8 @@ namespace PhosphorMP.Rendering
                     if (ImGui.Button("Cancel"))
                     {
                         ImGui.CloseCurrentPopup();
-                        CurrentMidiFile.Dispose();
-                        CurrentMidiFile = null;
+                        Logic.CurrentMidiFile.Dispose();
+                        Logic.CurrentMidiFile = null;
                     }
 
                     ImGui.EndPopup();
@@ -314,7 +248,7 @@ namespace PhosphorMP.Rendering
                         {
                             try
                             {
-                                CurrentMidiFile = new MidiFile(_filePathInput);
+                                Logic.CurrentMidiFile = new MidiFile(_filePathInput);
                             }
                             catch (Exception ex)
                             {
@@ -337,10 +271,10 @@ namespace PhosphorMP.Rendering
             ImGui.SameLine();
             if (ImGui.Button("Unload"))
             {
-                if (CurrentMidiFile != null)
+                if (Logic.CurrentMidiFile != null)
                 {
-                    CurrentMidiFile.Dispose();
-                    CurrentMidiFile = null;
+                    Logic.CurrentMidiFile.Dispose();
+                    Logic.CurrentMidiFile = null;
                 }
             }
             

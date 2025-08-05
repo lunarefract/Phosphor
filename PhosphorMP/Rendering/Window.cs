@@ -24,8 +24,8 @@ namespace PhosphorMP.Rendering
 
         private void Init()
         {
-            var windowCI = new WindowCreateInfo(100, 100, 1920, 1080, WindowState.Normal, "Phosphor");
-            BaseSdl2Window = VeldridStartup.CreateWindow(ref windowCI);
+            var windowCi = new WindowCreateInfo(100, 100, 1920, 1080, WindowState.Normal, "Phosphor");
+            BaseSdl2Window = VeldridStartup.CreateWindow(ref windowCi);
         }
     }
 }
