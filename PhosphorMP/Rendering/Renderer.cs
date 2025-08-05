@@ -27,7 +27,12 @@ namespace PhosphorMP.Rendering
         private DeviceBuffer _uniformBuffer;
         private ResourceSet _resourceSet;
         private Pipeline _pipeline;
-        private Stopwatch _stopwatch = new();
+        private VisualizationFramebuffer _visualizationFramebuffer;
+        private DeviceBuffer _fullscreenQuadBuffer;
+        private Pipeline _compositePipeline;
+        private ResourceSet _compositeResourceSet;
+        private ResourceLayout _compositeLayout;
+        private Sampler _sampler;
 
         private bool _showFileDialog = false;
         private string _filePathInput = "";
@@ -55,10 +60,20 @@ namespace PhosphorMP.Rendering
             if (BaseWindow == null) throw new NullReferenceException("Window is null");
             GraphicsDevice = VeldridStartup.CreateGraphicsDevice(BaseWindow, GraphicsBackend.OpenGL);
             ResourceFactory = GraphicsDevice.ResourceFactory;
+            _visualizationFramebuffer = new VisualizationFramebuffer();
+            CreateCompositePipeline();
             CommandList = ResourceFactory.CreateCommandList();
-            ImGuiRendererSwapchain = new ImGuiRenderer(GraphicsDevice, GraphicsDevice.SwapchainFramebuffer.OutputDescription, (int)GraphicsDevice.MainSwapchain.Framebuffer.Width, (int)GraphicsDevice.MainSwapchain.Framebuffer.Height);
-            ImGuiRendererFramebufferSpecific = new ImGuiRenderer(GraphicsDevice, GraphicsDevice.SwapchainFramebuffer.OutputDescription, (int)GraphicsDevice.MainSwapchain.Framebuffer.Width, (int)GraphicsDevice.MainSwapchain.Framebuffer.Height);
-
+            ImGuiRendererSwapchain = new ImGuiRenderer(
+                GraphicsDevice,
+                GraphicsDevice.SwapchainFramebuffer.OutputDescription,
+                (int)GraphicsDevice.MainSwapchain.Framebuffer.Width,
+                (int)GraphicsDevice.MainSwapchain.Framebuffer.Height);
+            ImGuiRendererFramebufferSpecific = new ImGuiRenderer(
+                GraphicsDevice,
+                _visualizationFramebuffer.Base.OutputDescription,
+                (int)GraphicsDevice.MainSwapchain.Framebuffer.Width,
+                (int)GraphicsDevice.MainSwapchain.Framebuffer.Height);
+            
             CreateVertexBuffer();
             CreatePipeline();
 
@@ -69,12 +84,12 @@ namespace PhosphorMP.Rendering
         {
             Vector2[] vertices =
             [
-                new Vector2(-50, -10),
-                new Vector2( 50, -10),
-                new Vector2( 50,  10),
-                new Vector2(-50, -10),
-                new Vector2( 50,  10),
-                new Vector2(-50,  10)
+                new Vector2(-500, -100),
+                new Vector2( 500, -100),
+                new Vector2( 500,  100),
+                new Vector2(-500, -100),
+                new Vector2( 500,  100),
+                new Vector2(-500,  100)
             ];
 
             _vertexBuffer = ResourceFactory.CreateBuffer(new BufferDescription((uint)(vertices.Length * sizeof(float) * 2), BufferUsage.VertexBuffer));
@@ -85,7 +100,6 @@ namespace PhosphorMP.Rendering
         {
             Shader[] shaders = Shaders.CompileShaders(GraphicsDevice, ResourceFactory);
 
-            // Create uniform layout (MVP matrix)
             var uniformLayout = ResourceFactory.CreateResourceLayout(new ResourceLayoutDescription(
                 new ResourceLayoutElementDescription("MVP", ResourceKind.UniformBuffer, ShaderStages.Vertex)));
 
@@ -111,32 +125,105 @@ namespace PhosphorMP.Rendering
                         )
                     ],
                     shaders),
-                Outputs = GraphicsDevice.SwapchainFramebuffer.OutputDescription
+                // Outputs = GraphicsDevice.SwapchainFramebuffer.OutputDescription
+                Outputs = _visualizationFramebuffer.Base.OutputDescription
             };
 
             _pipeline = ResourceFactory.CreateGraphicsPipeline(ref pipelineDesc);
         }
+        
+        private void CreateCompositePipeline()
+        {
+            // Create fullscreen quad vertices (clip space)
+            Vector2[] quadVertices =
+            [
+                new Vector2(-1, -1),
+                new Vector2( 1, -1),
+                new Vector2( 1,  1),
+                new Vector2(-1, -1),
+                new Vector2( 1,  1),
+                new Vector2(-1,  1),
+            ];
 
+            _fullscreenQuadBuffer = ResourceFactory.CreateBuffer(new BufferDescription((uint)(quadVertices.Length * sizeof(float) * 2), BufferUsage.VertexBuffer));
+            GraphicsDevice.UpdateBuffer(_fullscreenQuadBuffer, 0, quadVertices);
+
+            // Load shaders that sample a texture
+            Shader[] shaders = Shaders.CompileCompositeShaders(GraphicsDevice, ResourceFactory);
+
+            // Create texture sampler layout
+            var textureLayout = ResourceFactory.CreateResourceLayout(new ResourceLayoutDescription(
+                new ResourceLayoutElementDescription("SourceTexture", ResourceKind.TextureReadOnly, ShaderStages.Fragment),
+                new ResourceLayoutElementDescription("SourceSampler", ResourceKind.Sampler, ShaderStages.Fragment)
+            ));
+
+            var textureView = _visualizationFramebuffer.ColorTargetView;
+            var sampler = ResourceFactory.CreateSampler(new SamplerDescription());
+
+            _compositeResourceSet = ResourceFactory.CreateResourceSet(new ResourceSetDescription(
+                textureLayout,
+                textureView,
+                sampler
+            ));
+
+            var pipelineDesc = new GraphicsPipelineDescription
+            {
+                BlendState = BlendStateDescription.SingleAlphaBlend,
+                DepthStencilState = DepthStencilStateDescription.Disabled,
+                RasterizerState = new RasterizerStateDescription(
+                    FaceCullMode.None,
+                    PolygonFillMode.Solid,
+                    FrontFace.Clockwise,
+                    depthClipEnabled: true,
+                    scissorTestEnabled: false),
+                PrimitiveTopology = PrimitiveTopology.TriangleList,
+                ResourceLayouts = [textureLayout],
+                ShaderSet = new ShaderSetDescription(
+                    [
+                        new VertexLayoutDescription(
+                            new VertexElementDescription("Position", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2)
+                        )
+                    ],
+                    shaders),
+                Outputs = GraphicsDevice.SwapchainFramebuffer.OutputDescription // ← Match swapchain
+            };
+
+            _compositePipeline = ResourceFactory.CreateGraphicsPipeline(ref pipelineDesc);
+        }
+        
         public void Render()
         {
-            _stopwatch.Restart();
-
             var input = BaseWindow.PumpEvents();
 
             // Update ImGui contexts
             ImGuiRendererSwapchain.Update(Program.DeltaTime, input);
-            //ImGuiRendererFramebufferSpecific.Update(DeltaTime);
-            
-            CommandList.Begin();
-            CommandList.SetFramebuffer(GraphicsDevice.SwapchainFramebuffer);
-            CommandList.ClearColorTarget(0, new RgbaFloat(ClearColor.X, ClearColor.Y, ClearColor.Z, 1f));
+            //ImGuiRendererFramebufferSpecific.Update(Program.DeltaTime); // optional if needed
 
+            CommandList.Begin();
+
+            // 1. Render to offscreen framebuffer
+            CommandList.SetFramebuffer(_visualizationFramebuffer.Base);
+            CommandList.ClearColorTarget(0, new RgbaFloat(ClearColor.X, ClearColor.Y, ClearColor.Z, 1f));
+            CommandList.ClearDepthStencil(1f);
+
+            RenderOverlay();
+            ImGuiRendererFramebufferSpecific.Render(GraphicsDevice, CommandList);
+            
             CommandList.SetPipeline(_pipeline);
             CommandList.SetVertexBuffer(0, _vertexBuffer);
             CommandList.SetGraphicsResourceSet(0, _resourceSet);
-            
-            RenderOverlay();
-            ImGuiRendererFramebufferSpecific.Render(GraphicsDevice, CommandList);
+            CommandList.Draw(6);
+
+            // 2. Composite pass: render framebuffer texture to swapchain
+            CommandList.SetFramebuffer(GraphicsDevice.SwapchainFramebuffer);
+            CommandList.ClearColorTarget(0, RgbaFloat.Black);
+
+            CommandList.SetPipeline(_compositePipeline);                     // <- fullscreen textured quad pipeline
+            CommandList.SetVertexBuffer(0, _fullscreenQuadBuffer);           // <- vertex buffer for fullscreen quad
+            CommandList.SetGraphicsResourceSet(0, _compositeResourceSet);    // <- resource set with framebuffer texture
+            CommandList.Draw(6); // Fullscreen quad (2 triangles)
+
+            // 3. Render ImGui (on top of final output)
             RenderUi();
             ImGuiRendererSwapchain.Render(GraphicsDevice, CommandList);
 
@@ -145,7 +232,6 @@ namespace PhosphorMP.Rendering
             GraphicsDevice.SwapBuffers();
         }
         
-
         private void RenderOverlay()
         {
             ImGui.SetNextWindowPos(new Vector2(10, 10), ImGuiCond.Once);
@@ -256,7 +342,6 @@ namespace PhosphorMP.Rendering
                             }
                         }
                     }
-
                     ImGui.SameLine();
 
                     if (ImGui.Button("Cancel"))
@@ -264,7 +349,6 @@ namespace PhosphorMP.Rendering
                         ImGui.CloseCurrentPopup();
                         _showFileDialog = false;
                     }
-
                     ImGui.EndPopup();
                 }
             }
@@ -278,9 +362,6 @@ namespace PhosphorMP.Rendering
                 }
             }
             
-            // Progress bar or slider
-            //ImGui.SliderFloat("Progress", ref currentTime, 0f, totalTime, $"{Utils.Utils.FormatTime(TimeSpan.FromSeconds(currentTime))} / {Utils.Utils.FormatTime(TimeSpan.FromSeconds(totalTime))}");
-
             ImGui.End();
         }
     }
