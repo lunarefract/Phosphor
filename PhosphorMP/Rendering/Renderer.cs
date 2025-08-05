@@ -21,7 +21,7 @@ namespace PhosphorMP.Rendering
         public ImGuiRenderer ImGuiRendererSwapchain { get; private set; }
         public ImGuiRenderer ImGuiRendererFramebufferSpecific { get; private set; }
         public Sdl2Window BaseWindow { get; private set; }
-        public Vector3 ClearColor = new Vector3(0f, 0f, 0f); // Black by default (RGB)        
+        public Vector3 ClearColor = new Vector3(0f, 0f, 0f); // Black by default (RGB)       
         
         private DeviceBuffer _vertexBuffer;
         private DeviceBuffer _uniformBuffer;
@@ -33,9 +33,11 @@ namespace PhosphorMP.Rendering
         private ResourceSet _compositeResourceSet;
         private ResourceLayout _compositeLayout;
         private Sampler _sampler;
+        private List<VisualNote> _visualNotes = [];
 
         private bool _showFileDialog = false;
         private string _filePathInput = "";
+        private DeviceBuffer _noteVertexBuffer;
         private Logic Logic => Logic.Singleton;
         
         //TODO: Move of some of the player logic to different file ^
@@ -50,8 +52,10 @@ namespace PhosphorMP.Rendering
             Init();
             _ = Task.Run(() =>
             {
-                Logic.CurrentMidiFile = new MidiFile(@"/run/media/memfrag/00AAB9F3AAB9E576/BA.DECIMATIONMODE.mid"); // TODO: Remove in Release
+                Logic.CurrentMidiFile = new MidiFile(@"/home/memfrag/Pi.mid"); // TODO: Remove in Release
             });
+
+            _visualNotes = Utils.Utils.GenerateKeyboardSweep();
         }
         
         private void Init()
@@ -98,6 +102,11 @@ namespace PhosphorMP.Rendering
 
         private void CreatePipeline()
         {
+            Matrix4x4 ortho = Matrix4x4.CreateOrthographicOffCenter(
+                0, _visualizationFramebuffer.Base.Width,     // Left to Right
+                _visualizationFramebuffer.Base.Height, 0,  // Bottom to Top (Y grows down)
+                0f, 1f);
+            
             Shader[] shaders = Shaders.CompileShaders(GraphicsDevice, ResourceFactory);
 
             var uniformLayout = ResourceFactory.CreateResourceLayout(new ResourceLayoutDescription(
@@ -111,7 +120,7 @@ namespace PhosphorMP.Rendering
                 BlendState = BlendStateDescription.SingleAlphaBlend,
                 DepthStencilState = DepthStencilStateDescription.Disabled,
                 RasterizerState = new RasterizerStateDescription(
-                    FaceCullMode.None,
+                    FaceCullMode.None, // TODO: Cull back faces
                     PolygonFillMode.Solid,
                     FrontFace.Clockwise,
                     depthClipEnabled: true,
@@ -121,21 +130,20 @@ namespace PhosphorMP.Rendering
                 ShaderSet = new ShaderSetDescription(
                     [
                         new VertexLayoutDescription(
-                            new VertexElementDescription("Position", VertexElementSemantic.Position, VertexElementFormat.Float2)
+                            new VertexElementDescription("Position", VertexElementSemantic.Position, VertexElementFormat.Float2),
+                            new VertexElementDescription("Color", VertexElementSemantic.Color, VertexElementFormat.Float3)
                         )
                     ],
                     shaders),
-                // Outputs = GraphicsDevice.SwapchainFramebuffer.OutputDescription
                 Outputs = _visualizationFramebuffer.Base.OutputDescription
             };
-
             _pipeline = ResourceFactory.CreateGraphicsPipeline(ref pipelineDesc);
+            GraphicsDevice.UpdateBuffer(_uniformBuffer, 0, ref ortho);
         }
         
         private void CreateCompositePipeline()
         {
-            // Create fullscreen quad vertices (clip space)
-            Vector2[] quadVertices =
+            Vector2[] quadVertices = // Create fullscreen quad vertices (clip space)
             [
                 new Vector2(-1, -1),
                 new Vector2( 1, -1),
@@ -147,8 +155,6 @@ namespace PhosphorMP.Rendering
 
             _fullscreenQuadBuffer = ResourceFactory.CreateBuffer(new BufferDescription((uint)(quadVertices.Length * sizeof(float) * 2), BufferUsage.VertexBuffer));
             GraphicsDevice.UpdateBuffer(_fullscreenQuadBuffer, 0, quadVertices);
-
-            // Load shaders that sample a texture
             Shader[] shaders = Shaders.CompileCompositeShaders(GraphicsDevice, ResourceFactory);
 
             // Create texture sampler layout
@@ -171,7 +177,7 @@ namespace PhosphorMP.Rendering
                 BlendState = BlendStateDescription.SingleAlphaBlend,
                 DepthStencilState = DepthStencilStateDescription.Disabled,
                 RasterizerState = new RasterizerStateDescription(
-                    FaceCullMode.None,
+                    FaceCullMode.None, // TODO: Cull back faces
                     PolygonFillMode.Solid,
                     FrontFace.Clockwise,
                     depthClipEnabled: true,
@@ -197,31 +203,62 @@ namespace PhosphorMP.Rendering
 
             // Update ImGui contexts
             ImGuiRendererSwapchain.Update(Program.DeltaTime, input);
-            //ImGuiRendererFramebufferSpecific.Update(Program.DeltaTime); // optional if needed
 
             CommandList.Begin();
-
             // 1. Render to offscreen framebuffer
             CommandList.SetFramebuffer(_visualizationFramebuffer.Base);
             CommandList.ClearColorTarget(0, new RgbaFloat(ClearColor.X, ClearColor.Y, ClearColor.Z, 1f));
             CommandList.ClearDepthStencil(1f);
+            
+            List<NoteVertex> noteVertices = [];
+            
+            foreach (var note in _visualNotes)
+            {
+                float x = GetNoteXPosition(note.Key);
+                float y = GetNoteYPosition(note.StartingTick);
+                float height = GetNoteHeight(note.DurationTick);
+                float fbWidth = _visualizationFramebuffer.Base.Width;
+                float width = fbWidth / (RendererSettings.MaxKey - RendererSettings.MinKey);
+
+                var topLeft = new Vector2(x, y);
+                var topRight = new Vector2(x + width, y);
+                var bottomLeft = new Vector2(x, y + height);
+                var bottomRight = new Vector2(x + width, y + height);
+
+                Vector3 color = new Vector3(1, 0, 0); // red for now
+                
+                noteVertices.Add(new NoteVertex { Position = topLeft, Color = color });
+                noteVertices.Add(new NoteVertex { Position = topRight, Color = color });
+                noteVertices.Add(new NoteVertex { Position = bottomRight, Color = color });
+                noteVertices.Add(new NoteVertex { Position = topLeft, Color = color });
+                noteVertices.Add(new NoteVertex { Position = bottomRight, Color = color });
+                noteVertices.Add(new NoteVertex { Position = bottomLeft, Color = color });
+            }
+            
+            if (_noteVertexBuffer == null || _noteVertexBuffer.SizeInBytes < noteVertices.Count * sizeof(float) * 5)
+            {
+                _noteVertexBuffer?.Dispose();
+                _noteVertexBuffer = ResourceFactory.CreateBuffer(new BufferDescription((uint)(noteVertices.Count * sizeof(float) * 5), BufferUsage.VertexBuffer | BufferUsage.Dynamic));
+            }
+
+            GraphicsDevice.UpdateBuffer(_noteVertexBuffer, 0, noteVertices.ToArray());
 
             RenderOverlay();
             ImGuiRendererFramebufferSpecific.Render(GraphicsDevice, CommandList);
             
             CommandList.SetPipeline(_pipeline);
-            CommandList.SetVertexBuffer(0, _vertexBuffer);
+            CommandList.SetVertexBuffer(0, _noteVertexBuffer);
             CommandList.SetGraphicsResourceSet(0, _resourceSet);
-            CommandList.Draw(6);
+            CommandList.Draw((uint)noteVertices.Count);
 
             // 2. Composite pass: render framebuffer texture to swapchain
             CommandList.SetFramebuffer(GraphicsDevice.SwapchainFramebuffer);
             CommandList.ClearColorTarget(0, RgbaFloat.Black);
 
-            CommandList.SetPipeline(_compositePipeline);                     // <- fullscreen textured quad pipeline
-            CommandList.SetVertexBuffer(0, _fullscreenQuadBuffer);           // <- vertex buffer for fullscreen quad
-            CommandList.SetGraphicsResourceSet(0, _compositeResourceSet);    // <- resource set with framebuffer texture
-            CommandList.Draw(6); // Fullscreen quad (2 triangles)
+            CommandList.SetPipeline(_compositePipeline);
+            CommandList.SetVertexBuffer(0, _fullscreenQuadBuffer);
+            CommandList.SetGraphicsResourceSet(0, _compositeResourceSet);
+            CommandList.Draw(6);
 
             // 3. Render ImGui (on top of final output)
             RenderUi();
@@ -230,6 +267,25 @@ namespace PhosphorMP.Rendering
             CommandList.End();
             GraphicsDevice.SubmitCommands(CommandList);
             GraphicsDevice.SwapBuffers();
+        }
+        
+        private float GetNoteXPosition(byte key)
+        {
+            int keyCount = RendererSettings.MaxKey - RendererSettings.MinKey + 1;
+            float totalWidth = _visualizationFramebuffer.Base.Width;
+            float keyWidth = totalWidth / keyCount;
+            return (key - RendererSettings.MinKey) * keyWidth;
+        }
+        
+        private float GetNoteYPosition(long noteTick)
+        {
+            float deltaTicks = noteTick + (long)Logic.CurrentTick;
+            return deltaTicks * RendererSettings.ScrollSpeed + _visualizationFramebuffer.Base.Height / 2f;
+        }
+        
+        private float GetNoteHeight(long durationTicks)
+        {
+            return durationTicks * RendererSettings.ScrollSpeed;
         }
         
         private void RenderOverlay()

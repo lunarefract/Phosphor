@@ -1,3 +1,4 @@
+using System.Globalization;
 using PhosphorMP.Parser;
 
 namespace PhosphorMP
@@ -8,7 +9,7 @@ namespace PhosphorMP
         // ---
         public MidiFile CurrentMidiFile { get; internal set; }
         public ulong PassedNotes { get; internal set; } = 0; // TODO: Check if can be made private
-        public ulong CurrentTick { get; internal set; } = 0;
+        public long CurrentTick { get; internal set; } = 0;
         public bool Playing { get; internal set; } = false;
         
         private double _tickRemainder = 0.0;
@@ -21,7 +22,7 @@ namespace PhosphorMP
             if (!Playing || CurrentMidiFile == null)
                 return;
 
-            if (CurrentTick >= CurrentMidiFile.TickCount)
+            if (CurrentTick >= (long)CurrentMidiFile.TickCount)
             {
                 Playing = false;
                 return;
@@ -31,15 +32,15 @@ namespace PhosphorMP
             double microsecondsPerTick = tempo / (double)CurrentMidiFile.TimeDivision;
 
             double totalTicks = (Program.DeltaTime * 1_000_000) / microsecondsPerTick + _tickRemainder;
-            ulong ticksToAdvance = (ulong)totalTicks;
+            long ticksToAdvance = (long)totalTicks;
             _tickRemainder = totalTicks - ticksToAdvance;
 
             if (ticksToAdvance == 0)
                 return;
             
             // Parse new events between last tick and now + bar
-            ulong from = CurrentMidiFile.LastParsedTick;
-            ulong to = CurrentTick;
+            long from = CurrentMidiFile.LastParsedTick;
+            long to = CurrentTick;
             var events = CurrentMidiFile.ParseEventsBetweenTicks(from, to);
 
             CurrentTick += ticksToAdvance;

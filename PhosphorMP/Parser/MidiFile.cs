@@ -16,7 +16,7 @@ namespace PhosphorMP.Parser
         public ushort TimeDivision { get; private set; } = 0;
         public readonly List<MidiTrack> Tracks = [];
         public TimeSpan Length { get; private set; }
-        public ulong LastParsedTick { get; private set; } = 0;
+        public long LastParsedTick { get; private set; } = 0;
         public string FilePath { get; init; }
         public string FileName => Path.GetFileName(FilePath);
 
@@ -33,15 +33,12 @@ namespace PhosphorMP.Parser
             }
         }
         
-        public ulong TickCount
+        public long TickCount
         {
             get
             {
-                if (Tracks.Count == 0)
-                    return 0;
-
-                ulong maxTicks = Tracks.Max(track => track.LengthInTicks);
-                return (ulong)maxTicks;
+                if (Tracks.Count == 0) return 0;
+                return Tracks.Max(track => track.LengthInTicks);
             }
         }
         
@@ -85,7 +82,7 @@ namespace PhosphorMP.Parser
             ParserStats.PreparingForStreamingCount = 0;
         }
 
-        public List<MidiEvent> ParseEventsBetweenTicks(ulong startingTick, ulong endingTick)
+        public List<MidiEvent> ParseEventsBetweenTicks(long startingTick, long endingTick)
         {
             List<MidiEvent> events = [];
             foreach (var track in Tracks)
@@ -96,7 +93,7 @@ namespace PhosphorMP.Parser
             return events;
         }
         
-        public int GetCurrentTempoAtTick(ulong currentTick)
+        public int GetCurrentTempoAtTick(long currentTick)
         {
             if (MidiTrack.TempoChanges.Count == 0)
                 return 500_000; // Default 120 BPM
@@ -113,46 +110,46 @@ namespace PhosphorMP.Parser
             return currentTempo;
         }
         
-        public ulong GetTickAtElapsedSeconds(double seconds)
+        public long GetTickAtElapsedSeconds(double seconds)
         {
-            ulong tick = 0;
+            long tick = 0;
             double elapsed = 0;
             int currentTempo = 500_000; // default tempo (µs per quarter note)
-            ulong lastTick = 0;
+            long lastTick = 0;
 
             foreach (var tempoEvent in MidiTrack.TempoChanges)
             {
-                double deltaTime = ((tempoEvent.Tick - lastTick) * (ulong)currentTempo) / 1_000_000.0 / TimeDivision;
+                double deltaTime = ((tempoEvent.Tick - lastTick) * currentTempo) / 1_000_000.0 / TimeDivision;
 
                 if (elapsed + deltaTime > seconds)
                 {
                     double remaining = seconds - elapsed;
-                    tick += (ulong)((remaining * 1_000_000.0 * TimeDivision) / currentTempo);
+                    tick += (long)((remaining * 1_000_000.0 * TimeDivision) / currentTempo);
                     return tick;
                 }
 
                 elapsed += deltaTime;
                 tick = tempoEvent.Tick;
                 lastTick = tempoEvent.Tick;
-                
+
                 currentTempo = tempoEvent.MicrosecondsPerQuarterNote;
             }
 
             // After last tempo change
             double remainingAfter = seconds - elapsed;
-            tick += (ulong)((remainingAfter * 1_000_000.0 * TimeDivision) / currentTempo);
+            tick += (long)((remainingAfter * 1_000_000.0 * TimeDivision) / currentTempo);
             return tick;
         }
         
-        public double GetTimeInSeconds(ulong targetTick)
+        public double GetTimeInSeconds(long targetTick)
         {
             double totalTimeSeconds = 0;
-            ulong lastTick = 0;
+            long lastTick = 0;
             uint ppq = TimeDivision;
 
             foreach (var tempoEvent in MidiTrack.TempoChanges)
             {
-                ulong deltaTicks = tempoEvent.Tick - lastTick;
+                long deltaTicks = tempoEvent.Tick - lastTick;
 
                 // If the tempo event is past the target, break
                 if (tempoEvent.Tick > targetTick)
@@ -171,7 +168,7 @@ namespace PhosphorMP.Parser
                 var lastTempo = MidiTrack.TempoChanges.Count > 0 
                     ? MidiTrack.TempoChanges.Last() 
                     : new TempoChangeEvent(0, 500000);
-                ulong deltaTicks = targetTick - lastTick;
+                long deltaTicks = targetTick - lastTick;
                 double seconds = (deltaTicks * (uint)lastTempo.MicrosecondsPerQuarterNote) / (ppq * 1_000_000.0);
                 totalTimeSeconds += seconds;
             }

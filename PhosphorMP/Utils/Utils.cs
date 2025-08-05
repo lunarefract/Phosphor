@@ -1,3 +1,5 @@
+using PhosphorMP.Rendering;
+
 namespace PhosphorMP.Utils
 {
     public static class Utils
@@ -26,6 +28,32 @@ namespace PhosphorMP.Utils
             double percentage = (part / total) * 100;
             return $"{percentage:F2}%";
         }
+        
+        public static List<VisualNote> GenerateKeyboardSweep()
+        {
+            const int minKey = 0;
+            const int maxKey = 127;
+            const int noteDuration = 240;
+            const int tickGap = 10;
+
+            List<VisualNote> sweepNotes = [];
+
+            for (int i = 0; i <= maxKey - minKey; i++)
+            {
+                int startTick = i * (noteDuration + tickGap);
+                byte key = (byte)(minKey + i);
+
+                sweepNotes.Add(new VisualNote
+                {
+                    StartingTick = startTick,
+                    DurationTick = noteDuration,
+                    Key = key
+                });
+            }
+
+            return sweepNotes;
+        }
+
     }
 }
 
