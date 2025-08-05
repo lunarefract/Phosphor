@@ -7,8 +7,8 @@ namespace PhosphorMP.Parser
     {
         public long TrackStartPosition { get; init; }
         public int DataLength { get; init; }
-        public ulong LastParsedTick { get; set; } = 0;
-        public ulong LengthInTicks { get; private set; } = 0;
+        public long LastParsedTick { get; set; } = 0;
+        public long LengthInTicks { get; private set; } = 0;
         //public List<MidiEvent> Events { get; private set; } = [];
         public static List<TempoChangeEvent> TempoChanges { get; } = [];
         public ulong NoteCount { get; private set; } = 0;
@@ -27,11 +27,11 @@ namespace PhosphorMP.Parser
             _reader = new BinaryReader(_trackData);
         }
         
-        public List<MidiEvent> ParseEventsBetweenTicks(ulong startingTick, ulong endingTick)
+        public List<MidiEvent> ParseEventsBetweenTicks(long startingTick, long endingTick)
         {
             List<MidiEvent> events = [];
             byte runningStatus = LastStatusByte;
-            ulong ticks = LastParsedTick;
+            long ticks = LastParsedTick;
             _reader.BaseStream.Position = 0; // TODO: Restore last stream position (Optimization)
             
             while (_reader.BaseStream.Position < DataLength)
@@ -184,7 +184,7 @@ namespace PhosphorMP.Parser
         {
             ulong noteCountLocal = 0;
             byte runningStatus = 0;
-            ulong ticks = 0;
+            long ticks = 0;
 
             while (_reader.BaseStream.Position < DataLength)
             {

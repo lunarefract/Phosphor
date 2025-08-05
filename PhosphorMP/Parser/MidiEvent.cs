@@ -11,7 +11,7 @@ namespace PhosphorMP.Parser
 
     public class MidiEvent
     {
-        public ulong Tick { get; }
+        public long Tick { get; }
         public int DeltaTime { get; }
         public byte StatusByte { get; }
         public byte? MetaType { get; }
@@ -19,7 +19,7 @@ namespace PhosphorMP.Parser
         public byte[]? Data { get; }
         public byte[]? SysExData { get; }
 
-        public MidiEvent(ulong tick, int deltaTime, byte statusByte,
+        public MidiEvent(long tick, int deltaTime, byte statusByte,
             byte[]? data = null,
             byte? metaType = null,
             byte[]? metaData = null,

@@ -11,13 +11,15 @@ namespace PhosphorMP.Rendering
         {
             string vertexCode = @"
             #version 450
+
             layout(location = 0) in vec2 Position;
-            layout(set = 0, binding = 0) uniform MVPBuffer {
+            layout(set = 0, binding = 0) uniform Uniforms {
                 mat4 MVP;
             };
+
             void main()
             {
-                gl_Position = MVP * vec4(Position, 0, 1);
+                gl_Position = MVP * vec4(Position, 0.0, 1.0);
             }
             ";
 
