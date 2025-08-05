@@ -9,7 +9,7 @@ namespace PhosphorMP
         {
             _ = new SerializableConfig(true);
             _ = new Window();
-            _ = new BassMidiWrapper();
+            //_ = new BassMidiWrapper();
             _ = new Renderer();
             
             while (Window.Singleton.BaseSdl2Window.Exists)

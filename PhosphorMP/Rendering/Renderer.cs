@@ -231,7 +231,7 @@ namespace PhosphorMP.Rendering
             
             ImGui.Text($"FPS: {(1f / DeltaTime):0.0}");
             ImGui.Text($"Heap Memory Usage: {GC.GetTotalMemory(false) / 1024f / 1024f:F2} MB");
-            ImGui.Text($"Bass Rendertime: {Bass.CPUUsage}");
+            //ImGui.Text($"Bass Rendertime: {Bass.CPUUsage}");
             ImGui.End();
         }
 
