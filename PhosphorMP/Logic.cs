@@ -7,21 +7,38 @@ namespace PhosphorMP
     {
         public static Logic Singleton { get; private set; }
         // ---
-        public MidiFile CurrentMidiFile { get; internal set; }
+        public MidiFile CurrentMidiFile
+        {
+            get => _currentMidiFile;
+            internal set
+            {
+                _currentMidiFile = value;
+                if (_currentMidiFile != null)
+                {
+                    StartupDelayTicks = -Utils.Utils.CalculateTicks(3f, 120, _currentMidiFile.TimeDivision);
+                    CurrentTick = StartupDelayTicks;
+                }
+            }
+        }
         public ulong PassedNotes { get; internal set; } = 0; // TODO: Check if can be made private
         public long CurrentTick { get; internal set; } = 0;
         public bool Playing { get; internal set; } = false;
         
         private double _tickRemainder = 0.0;
+        private MidiFile _currentMidiFile;
+        public int StartupDelayTicks { get; private set; } = -4800;
         
-        public Logic() => Singleton ??= this;
+        public Logic()
+        {
+            Singleton ??= this;
+        }
         ~Logic() => Dispose();
         
         public void PlaybackLogic()
         {
             if (!Playing || CurrentMidiFile == null)
                 return;
-
+            
             if (CurrentTick >= (long)CurrentMidiFile.TickCount)
             {
                 Playing = false;
@@ -42,8 +59,6 @@ namespace PhosphorMP
             long from = CurrentMidiFile.LastParsedTick;
             long to = CurrentTick;
             var events = CurrentMidiFile.ParseEventsBetweenTicks(from, to);
-
-            CurrentTick += ticksToAdvance;
             
             foreach (var midiEvent in events)
             {
@@ -53,20 +68,19 @@ namespace PhosphorMP
                     byte velocity = midiEvent.Data[1];
                     byte note = midiEvent.Data[0];
                     int channel = status & 0x0F;
-
-                    //if (midiEvent.Tick == CurrentMidiFile.TickCount)
+                    
+                    if ((status & 0xF0) == 0x90 && velocity > 0)
                     {
-                        if ((status & 0xF0) == 0x90 && velocity > 0)
-                        {
-                            PassedNotes++;
-                        }
-                        else if ((status & 0xF0) == 0x80 || ((status & 0xF0) == 0x90 && velocity == 0))
-                        {
-                            
-                        }
+                        PassedNotes++;
+                    }
+                    else if ((status & 0xF0) == 0x80 || ((status & 0xF0) == 0x90 && velocity == 0))
+                    {
+                        
                     }
                 }
             }
+            
+            CurrentTick += ticksToAdvance;
         }
         
         public void Dispose()

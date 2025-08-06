@@ -22,7 +22,7 @@ namespace PhosphorMP
             
             while (Window.Singleton.BaseSdl2Window.Exists)
             {
-                window.BaseSdl2Window.Title = $"Phosphor [{(1f / Program.DeltaTime):0.0} FPS]";
+                //window.BaseSdl2Window.Title = $"Phosphor [{(1f / Program.DeltaTime):0.0} FPS]"; TODO: Remove soon or replace, fucks up waybar
                 double currentTime = stopwatch.Elapsed.TotalSeconds;
                 DeltaTime = (float)(currentTime - lastTime);
                 if (logic.CurrentMidiFile != null)
