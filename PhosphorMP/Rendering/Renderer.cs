@@ -211,8 +211,7 @@ namespace PhosphorMP.Rendering
             CommandList.ClearDepthStencil(1f);
             
             List<NoteVertex> noteVertices = [];
-            
-            foreach (var note in _visualNotes)
+            foreach (var note in _visualNotes) // TODO: Fix desync
             {
                 float x = GetNoteXPosition(note.Key);
                 float y = GetNoteYPosition(note.StartingTick);
@@ -279,8 +278,8 @@ namespace PhosphorMP.Rendering
         
         private float GetNoteYPosition(long noteTick)
         {
-            float deltaTicks = noteTick + (long)Logic.CurrentTick;
-            return deltaTicks * RendererSettings.ScrollSpeed + _visualizationFramebuffer.Base.Height / 2f;
+            float deltaTicks = noteTick - Logic.CurrentTick;
+            return _visualizationFramebuffer.Base.Height - deltaTicks * RendererSettings.ScrollSpeed;
         }
         
         private float GetNoteHeight(long durationTicks)
@@ -321,7 +320,7 @@ namespace PhosphorMP.Rendering
             {
                 if (Logic.CurrentTick == Logic.CurrentMidiFile.TickCount)
                 {
-                    Logic.CurrentTick = 0;
+                    Logic.CurrentTick = Logic.StartupDelayTicks;
                 }
                 Logic.Playing = !Logic.Playing;
             }
@@ -330,7 +329,7 @@ namespace PhosphorMP.Rendering
             if (ImGui.Button("Stop"))
             {
                 Logic.Playing = false;
-                Logic.CurrentTick = 0;
+                Logic.CurrentTick = Logic.StartupDelayTicks;
             }
             
             if (ImGui.Button("Load"))

@@ -6,7 +6,10 @@ namespace PhosphorMP.Utils
     {
         public static string FormatTime(TimeSpan time)
         {
-            return $"{(int)time.TotalMinutes:00}:{time.Seconds:00}.{time.Milliseconds / 100}";
+            TimeSpan absTime = time.Duration(); // absolute value of time
+            string sign = time.Ticks < 0 ? "-" : "";
+
+            return $"{sign}{(int)absTime.TotalMinutes:00}:{absTime.Seconds:00}.{absTime.Milliseconds / 100}";
         }
         
         public static int MakeLong(int low, int high)
@@ -33,7 +36,7 @@ namespace PhosphorMP.Utils
         {
             const int minKey = 0;
             const int maxKey = 127;
-            const int noteDuration = 240;
+            const int noteDuration = 10;
             const int tickGap = 10;
 
             List<VisualNote> sweepNotes = [];
@@ -54,6 +57,13 @@ namespace PhosphorMP.Utils
             return sweepNotes;
         }
 
+        public static int CalculateTicks(double seconds, double bpm, int ppq)
+        {
+            double beatsPerSecond = bpm / 60.0;
+            double totalBeats = beatsPerSecond * seconds;
+            int ticks = (int)(totalBeats * ppq);
+            return ticks;
+        }
     }
 }
 
