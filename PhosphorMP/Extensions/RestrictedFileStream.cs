@@ -33,6 +33,17 @@ namespace PhosphorMP.Extensions
                     throw new ArgumentOutOfRangeException(nameof(value));
                 _position = value;
                 _baseStream.Position = _start + value;
+                // TODO: Fix
+                
+                /*
+                 System.ObjectDisposedException: Cannot access a closed file.
+                   at System.IO.FileStream.set_Position(Int64 value)
+                   at PhosphorMP.Extensions.RestrictedFileStream.set_Position(Int64 value) in /home/memfrag/Documents/GitHub/Phosphor/PhosphorMP/Extensions/RestrictedFileStream.cs:line 35
+                   at PhosphorMP.Parser.MidiTrack.ParseEventsBetweenTicks(Int64 startingTick, Int64 endingTick) in /home/memfrag/Documents/GitHub/Phosphor/PhosphorMP/Parser/MidiTrack.cs:line 35
+                   at PhosphorMP.Parser.MidiFile.ParseEventsBetweenTicks(Int64 startingTick, Int64 endingTick) in /home/memfrag/Documents/GitHub/Phosphor/PhosphorMP/Parser/MidiFile.cs:line 90
+                   at PhosphorMP.Logic.PlaybackLogic() in /home/memfrag/Documents/GitHub/Phosphor/PhosphorMP/Logic.cs:line 61
+                   at PhosphorMP.Program.Main() in /home/memfrag/Documents/GitHub/Phosphor/PhosphorMP/Program.cs:line 30
+                 */
             }
         }
 

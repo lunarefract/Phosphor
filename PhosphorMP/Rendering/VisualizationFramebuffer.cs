@@ -67,6 +67,11 @@ namespace PhosphorMP.Rendering
             }
         }
 
+        public void CaptureOutput()
+        {
+            //_colorTarget.
+        }
+
         public void Dispose()
         {
             Base?.Dispose();

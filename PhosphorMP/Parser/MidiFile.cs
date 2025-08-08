@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Concurrent;
-using System.IO;
-
 namespace PhosphorMP.Parser
 {
     public class MidiFile : IDisposable
@@ -110,37 +106,6 @@ namespace PhosphorMP.Parser
             return currentTempo;
         }
         
-        public long GetTickAtElapsedSeconds(double seconds)
-        {
-            long tick = 0;
-            double elapsed = 0;
-            int currentTempo = 500_000; // default tempo (µs per quarter note)
-            long lastTick = 0;
-
-            foreach (var tempoEvent in MidiTrack.TempoChanges)
-            {
-                double deltaTime = ((tempoEvent.Tick - lastTick) * currentTempo) / 1_000_000.0 / TimeDivision;
-
-                if (elapsed + deltaTime > seconds)
-                {
-                    double remaining = seconds - elapsed;
-                    tick += (long)((remaining * 1_000_000.0 * TimeDivision) / currentTempo);
-                    return tick;
-                }
-
-                elapsed += deltaTime;
-                tick = tempoEvent.Tick;
-                lastTick = tempoEvent.Tick;
-
-                currentTempo = tempoEvent.MicrosecondsPerQuarterNote;
-            }
-
-            // After last tempo change
-            double remainingAfter = seconds - elapsed;
-            tick += (long)((remainingAfter * 1_000_000.0 * TimeDivision) / currentTempo);
-            return tick;
-        }
-        
         public double GetTimeInSeconds(long targetTick)
         {
             double totalTimeSeconds = 0;
@@ -200,6 +165,7 @@ namespace PhosphorMP.Parser
         {
             ParserStats.Stage = ParserStage.FindingTracksPositions;
             Dictionary<long, int> trackPositions = [];
+
             while (_reader.BaseStream.Position < _reader.BaseStream.Length)
             {
                 string chunkType = new string(_reader.ReadChars(4));
@@ -212,48 +178,47 @@ namespace PhosphorMP.Parser
 
                 int length = ReadBigEndianInt32();
                 long trackStart = _reader.BaseStream.Position;
-                
+
                 trackPositions.Add(trackStart, length);
                 ParserStats.FoundTrackPositions++;
+
                 // Advance stream position to the end of the track chunk
                 _reader.BaseStream.Seek(trackStart + length, SeekOrigin.Begin);
             }
-            
-            Console.WriteLine($"Found {trackPositions.Count} track positions, now creating MidiTrack classes.");
-            
+
+            // Sort by track start position (smallest to largest)
+            var sortedTrackPositions = trackPositions
+                .OrderBy(tp => tp.Key)
+                .ToList();
+
+            Console.WriteLine($"Found {sortedTrackPositions.Count} track positions, now creating MidiTrack classes.");
+
             ParserStats.Stage = ParserStage.CreatingTrackClasses;
             if (SerializableConfig.Singleton.Parser.MultiThreadedParsing)
             {
-                Parallel.ForEach(trackPositions, trackPosition =>
+                Parallel.For(0, sortedTrackPositions.Count, i =>
                 {
-                    MidiTrack track = new(FilePath, trackPosition.Key, trackPosition.Value);
-                    Tracks.Add(track);
-                    ParserStats.CreatedTrackClasses++;
+                    var tp = sortedTrackPositions[i];
+                    var track = new MidiTrack(FilePath, tp.Key, tp.Value, i);
+                    lock (Tracks)
+                    {
+                        Tracks.Add(track);
+                        ParserStats.CreatedTrackClasses++;
+                    }
                 });
             }
             else
             {
-                foreach (var trackPosition in trackPositions)
+                for (int i = 0; i < sortedTrackPositions.Count; i++)
                 {
-                    MidiTrack track = new(FilePath, trackPosition.Key, trackPosition.Value);
+                    var tp = sortedTrackPositions[i];
+                    var track = new MidiTrack(FilePath, tp.Key, tp.Value, i);
                     Tracks.Add(track);
                     ParserStats.CreatedTrackClasses++;
                 }
             }
         }
-
-        private int ReadVariableLengthQuantity()
-        {
-            int value = 0;
-            byte b;
-            do
-            {
-                b = _reader.ReadByte();
-                value = (value << 7) | (b & 0x7F);
-            } while ((b & 0x80) != 0);
-            return value;
-        }
-
+        
         private ushort ReadBigEndianUInt16()
         {
             return (ushort)((_reader.ReadByte() << 8) | _reader.ReadByte());

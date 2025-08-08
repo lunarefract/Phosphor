@@ -1,10 +1,10 @@
-using System.Diagnostics;
 using PhosphorMP.Extensions;
 
 namespace PhosphorMP.Parser
 {
     public class MidiTrack : IDisposable
     {
+        public int Id { get; init; }
         public long TrackStartPosition { get; init; }
         public int DataLength { get; init; }
         public long LastParsedTick { get; set; } = 0;
@@ -12,16 +12,16 @@ namespace PhosphorMP.Parser
         //public List<MidiEvent> Events { get; private set; } = [];
         public static List<TempoChangeEvent> TempoChanges { get; } = [];
         public ulong NoteCount { get; private set; } = 0;
-
-        public byte LastStatusByte { get; set; } = 0;
+        public byte LastStatusByte { get; internal set; } = 0;
 
         private readonly RestrictedFileStream _trackData;
         private readonly BinaryReader _reader;
 
-        public MidiTrack(string baseMidiPath, long position, int dataLength)
+        public MidiTrack(string baseMidiPath, long position, int dataLength, int trackId)
         {
             TrackStartPosition = position;
             DataLength = dataLength;
+            Id = trackId;
 
             _trackData = new RestrictedFileStream(baseMidiPath, FileMode.Open, position, dataLength);
             _reader = new BinaryReader(_trackData);
@@ -29,36 +29,27 @@ namespace PhosphorMP.Parser
         
         public List<MidiEvent> ParseEventsBetweenTicks(long startingTick, long endingTick)
         {
-            List<MidiEvent> events = [];
-            byte runningStatus = LastStatusByte;
-            long ticks = LastParsedTick;
-            _reader.BaseStream.Position = 0; // TODO: Restore last stream position (Optimization)
-            
+            List<MidiEvent> events = new List<MidiEvent>();
+
+            // Always parse from start of track for a stable result
+            _reader.BaseStream.Position = 0;
+            long ticks = 0;
+            byte runningStatus = 0;
+
             while (_reader.BaseStream.Position < DataLength)
             {
-                // Read delta time
                 uint deltaTime = (uint)ReadVariableLength(_reader);
-                byte statusByte = _reader.ReadByte();
-
                 ticks += deltaTime;
 
-                // Check if we've passed ending tick
                 if (ticks > endingTick)
-                {
-                    LastParsedTick = ticks - deltaTime; // Don't consume this event yet
                     break;
-                }
 
-                // Peek next byte to determine status or running status
-                if (_reader.BaseStream.Position >= DataLength)
-                    break;
-                
+                byte statusByte = _reader.ReadByte();
                 if (statusByte < 0x80)
                 {
+                    // Running status
                     if (runningStatus == 0)
                         throw new InvalidDataException("Running status used before status byte.");
-
-                    // Running status applies, unread this byte for data parsing
                     _reader.BaseStream.Position -= 1;
                     statusByte = runningStatus;
                 }
@@ -67,76 +58,21 @@ namespace PhosphorMP.Parser
                     runningStatus = statusByte;
                 }
 
-                LastStatusByte = runningStatus;
-
-                // If ticks < startingTick, skip event without storing
-                if (ticks < startingTick)
+                // Meta event
+                if (statusByte == 0xFF)
                 {
-                    // Skip event based on type
-                    if (statusByte == 0xFF) // Meta event
-                    {
-                        if (_reader.BaseStream.Position >= DataLength)
-                            break;
-
-                        byte metaType = _reader.ReadByte();
-                        int metaLength = ReadVariableLength(_reader);
-
-                        if (_reader.BaseStream.Position + metaLength > DataLength)
-                            break;
-
-                        _reader.BaseStream.Position += metaLength; // Skip meta data
-                    }
-                    else if (statusByte >= 0x80 && statusByte <= 0xEF) // MIDI channel event
-                    {
-                        int dataBytes = statusByte switch
-                        {
-                            >= 0x80 and < 0xC0 => 2,
-                            >= 0xC0 and < 0xE0 => 1,
-                            >= 0xE0 and <= 0xEF => 2,
-                            _ => throw new InvalidDataException($"Unknown MIDI status byte: {statusByte:X2}")
-                        };
-
-                        if (_reader.BaseStream.Position + dataBytes > DataLength)
-                            break;
-
-                        _reader.BaseStream.Position += dataBytes; // Skip data bytes
-                    }
-                    else if (statusByte == 0xF0 || statusByte == 0xF7) // SysEx event
-                    {
-                        int sysexLength = ReadVariableLength(_reader);
-                        if (_reader.BaseStream.Position + sysexLength > DataLength)
-                            break;
-
-                        _reader.BaseStream.Position += sysexLength; // Skip sysex data
-                    }
-                    else
-                    {
-                        throw new InvalidDataException($"Unknown status byte encountered: {statusByte:X2}");
-                    }
-
-                    continue; // Skip event storing
-                }
-
-                // Now, parse the event and add it
-
-                if (statusByte == 0xFF) // Meta event
-                {
-                    if (_reader.BaseStream.Position >= DataLength)
-                        break;
-
                     byte metaType = _reader.ReadByte();
                     int metaLength = ReadVariableLength(_reader);
-
-                    if (_reader.BaseStream.Position + metaLength > DataLength)
-                        break;
-
                     byte[] metaData = _reader.ReadBytes(metaLength);
+
                     if (metaType == 0x2F) // End of track
                         break;
 
-                    events.Add(new MidiEvent(ticks, (int)deltaTime, statusByte, metaType: metaType, metaData: metaData));
+                    if (ticks >= startingTick)
+                        events.Add(new MidiEvent(ticks, (int)deltaTime, statusByte, metaType: metaType, metaData: metaData, track: Id));
                 }
-                else if (statusByte >= 0x80 && statusByte <= 0xEF) // MIDI channel event
+                // Channel event
+                else if (statusByte >= 0x80 && statusByte <= 0xEF)
                 {
                     int dataBytes = statusByte switch
                     {
@@ -146,28 +82,17 @@ namespace PhosphorMP.Parser
                         _ => throw new InvalidDataException($"Unknown MIDI status byte: {statusByte:X2}")
                     };
 
-                    if (_reader.BaseStream.Position + dataBytes > DataLength)
-                        break;
-
                     byte[] data = _reader.ReadBytes(dataBytes);
-                    events.Add(new MidiEvent(ticks, (int)deltaTime, statusByte, data: data));
-
-                    byte eventType = (byte)(statusByte & 0xF0);
-                    byte velocity = data.Length > 1 ? data[1] : (byte)0;
-
-                    if (eventType == 0x90 && velocity > 0)
-                    {
-                        //Console.WriteLine("noteon occured");
-                    }
+                    if (ticks >= startingTick)
+                        events.Add(new MidiEvent(ticks, (int)deltaTime, statusByte, data: data, track: Id));
                 }
-                else if (statusByte == 0xF0 || statusByte == 0xF7) // SysEx event
+                // SysEx event
+                else if (statusByte == 0xF0 || statusByte == 0xF7)
                 {
                     int sysexLength = ReadVariableLength(_reader);
-                    if (_reader.BaseStream.Position + sysexLength > DataLength)
-                        break;
-
                     byte[] sysexData = _reader.ReadBytes(sysexLength);
-                    events.Add(new MidiEvent(ticks, (int)deltaTime, statusByte, sysExData: sysexData));
+                    if (ticks >= startingTick)
+                        events.Add(new MidiEvent(ticks, (int)deltaTime, statusByte, sysExData: sysexData, track: Id));
                 }
                 else
                 {
@@ -175,9 +100,11 @@ namespace PhosphorMP.Parser
                 }
             }
 
-            LastParsedTick = ticks;
-            //Events.AddRange(events);
             return events;
+        }
+        private int GetLastReadEventLength(long startPos)
+        {
+            return (int)(_reader.BaseStream.Position - startPos);
         }
         
         public void ParseEventsFast()
