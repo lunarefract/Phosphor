@@ -47,7 +47,7 @@ namespace PhosphorMP.Rendering
         public void HandleFrame()
         {
             if (!Active) return;
-            Renderer.Singleton._visualizationFramebuffer.CaptureOutput(Path.Combine(Directory.GetCurrentDirectory(), "framedump", $"{FrameCount}.png"));
+            Renderer.Singleton.VisualizationFramebuffer.CaptureOutput(Path.Combine(Directory.GetCurrentDirectory(), "framedump", $"{FrameCount}.png"));
             FrameCount++;
         }
         

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using C5;
 using ImGuiNET;
 using ManagedBass;
 using ManagedBass.Midi;
@@ -24,20 +25,19 @@ namespace PhosphorMP.Rendering
         public ImGuiRenderer ImGuiRendererSwapchain { get; private set; }
         public ImGuiRenderer ImGuiRendererFramebufferSpecific { get; private set; }
         public Framedumper Framedumper { get; private set; }
-        public Vector3 ClearColor { get; internal set; } = new Vector3(0f, 0f, 0.25f);
-        public bool Framelog { get; private set; }
-        public List<VisualNote> VisualNotes { get; internal set; } = [];
+        public Vector3 ClearColor { get; internal set; } = new Vector3(0f, 0f, 0f);
+        public ArrayList<VisualNote> VisualNotes { get; internal set; } = [];
+        internal VisualizationFramebuffer VisualizationFramebuffer;
         private static Sdl2Window BaseWindow => Window.Singleton.BaseSdl2Window;
         private Logic Logic => Logic.Singleton;
         
-        private Dictionary<int, DeviceBuffer> _trackVertexBuffers = []; // TODO: Make this only apply to how much colors are in a palette, a lot of note buffers can cause useless CPU overhead
+        private HashDictionary<int, DeviceBuffer> _trackVertexBuffers = []; // TODO: Make this only apply to how much colors are in a palette, a lot of note buffers can cause useless CPU overhead, also a lot of notes in a buffer is bad because there are limits
         private DeviceBuffer _uniformBuffer;
         private DeviceBuffer _fullscreenQuadBuffer;
         private ResourceSet _resourceSet;
         private ResourceSet _compositeResourceSet;
         private Pipeline _visualizationPipeline;
         private Pipeline _compositePipeline;
-        internal VisualizationFramebuffer _visualizationFramebuffer;
         private ResourceLayout _compositeLayout;
         private Sampler _sampler;
         
@@ -56,7 +56,7 @@ namespace PhosphorMP.Rendering
             {
                 try
                 {
-                    Logic.CurrentMidiFile = new MidiFile(@"/mnt/nas/Backups/extract/HAHASONGREBLACK.mid"); // TODO: Remove in Release
+                    Logic.CurrentMidiFile = new MidiFile(@"/home/memfrag/Downloads/Mary had a little lamb of DEATH.mid"); // TODO: Remove in Release
                 }
                 catch (Exception e)
                 {
@@ -72,7 +72,7 @@ namespace PhosphorMP.Rendering
             if (BaseWindow == null) throw new NullReferenceException("Window is null");
             GraphicsDevice = VeldridStartup.CreateGraphicsDevice(BaseWindow, GraphicsBackend.OpenGL);
             ResourceFactory = GraphicsDevice.ResourceFactory;
-            _visualizationFramebuffer = new VisualizationFramebuffer();
+            VisualizationFramebuffer = new VisualizationFramebuffer();
             CreateCompositePipeline();
             CommandList = ResourceFactory.CreateCommandList();
             ImGuiRendererSwapchain = new ImGuiRenderer(
@@ -82,7 +82,7 @@ namespace PhosphorMP.Rendering
                 (int)GraphicsDevice.MainSwapchain.Framebuffer.Height);
             ImGuiRendererFramebufferSpecific = new ImGuiRenderer(
                 GraphicsDevice,
-                _visualizationFramebuffer.Base.OutputDescription,
+                VisualizationFramebuffer.Base.OutputDescription,
                 (int)GraphicsDevice.MainSwapchain.Framebuffer.Width,
                 (int)GraphicsDevice.MainSwapchain.Framebuffer.Height);
             
@@ -94,8 +94,8 @@ namespace PhosphorMP.Rendering
         private void CreatePipeline()
         {
             Matrix4x4 ortho = Matrix4x4.CreateOrthographicOffCenter(
-                0, _visualizationFramebuffer.Base.Width,     // Left to Right
-                _visualizationFramebuffer.Base.Height, 0,  // Bottom to Top (Y grows down)
+                0, VisualizationFramebuffer.Base.Width,     // Left to Right
+                VisualizationFramebuffer.Base.Height, 0,  // Bottom to Top (Y grows down)
                 0f, 1f);
             
             Shader[] shaders = Shaders.CompileShaders(GraphicsDevice, ResourceFactory);
@@ -106,7 +106,7 @@ namespace PhosphorMP.Rendering
             var uniforms = new Uniforms
             {
                 MVP = ortho,
-                FramebufferSize = new Vector2(_visualizationFramebuffer.Base.Width, _visualizationFramebuffer.Base.Height)
+                FramebufferSize = new Vector2(VisualizationFramebuffer.Base.Width, VisualizationFramebuffer.Base.Height)
             };
 
             _uniformBuffer = ResourceFactory.CreateBuffer(new BufferDescription(
@@ -137,7 +137,7 @@ namespace PhosphorMP.Rendering
                         )
                     ],
                     shaders),
-                Outputs = _visualizationFramebuffer.Base.OutputDescription
+                Outputs = VisualizationFramebuffer.Base.OutputDescription
             };
             _visualizationPipeline = ResourceFactory.CreateGraphicsPipeline(ref pipelineDesc);
             GraphicsDevice.UpdateBuffer(_uniformBuffer, 0, ref uniforms);
@@ -165,7 +165,7 @@ namespace PhosphorMP.Rendering
                 new ResourceLayoutElementDescription("SourceSampler", ResourceKind.Sampler, ShaderStages.Fragment)
             ));
 
-            var textureView = _visualizationFramebuffer.ColorTargetView;
+            var textureView = VisualizationFramebuffer.ColorTargetView;
             var sampler = ResourceFactory.CreateSampler(new SamplerDescription());
 
             _compositeResourceSet = ResourceFactory.CreateResourceSet(new ResourceSetDescription(
@@ -189,7 +189,7 @@ namespace PhosphorMP.Rendering
                 ShaderSet = new ShaderSetDescription(
                     [
                         new VertexLayoutDescription(
-                            new VertexElementDescription("Position", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2)
+                            new VertexElementDescription("Position", VertexElementSemantic.Position, VertexElementFormat.Float2)
                         )
                     ],
                     shaders),
@@ -205,7 +205,7 @@ namespace PhosphorMP.Rendering
             ImGuiRendererSwapchain.Update(Program.DeltaTime, input);
 
             CommandList.Begin();
-            CommandList.SetFramebuffer(_visualizationFramebuffer.Base);
+            CommandList.SetFramebuffer(VisualizationFramebuffer.Base);
             CommandList.ClearColorTarget(0, new RgbaFloat(ClearColor.X, ClearColor.Y, ClearColor.Z, 1f));
             CommandList.ClearDepthStencil(1f);
             UpdateVisualization();
@@ -239,19 +239,16 @@ namespace PhosphorMP.Rendering
 
         private void UpdateVisualization()
         {
-            var threadLocalTrackVertices = new ThreadLocal<Dictionary<int, List<NoteVertex>>>(
-                () => new Dictionary<int, List<NoteVertex>>(),
-                trackAllValues: true
-            );
+            var threadLocalTrackVertices = new ThreadLocal<HashDictionary<int, ArrayList<NoteVertex>>>(() => new HashDictionary<int, ArrayList<NoteVertex>>(), trackAllValues: true);
 
             Parallel.ForEach(VisualNotes, visualNote =>
             {
                 float y = GetVerticalPositionFromTick(visualNote.StartingTick);
                 float height = GetHeightFromDuration(visualNote.DurationTick);
-                if (y + height < 0 || y > _visualizationFramebuffer.Base.Height)
+                if (y + height < 0 || y > VisualizationFramebuffer.Base.Height)
                     return;
 
-                float fbWidth = _visualizationFramebuffer.Base.Width;
+                float fbWidth = VisualizationFramebuffer.Base.Width;
                 var noteWidth = fbWidth / (RendererSettings.MaxKey - RendererSettings.MinKey);
                 float x = (visualNote.Key - RendererSettings.MinKey) * noteWidth;
 
@@ -265,7 +262,7 @@ namespace PhosphorMP.Rendering
                 var noteHeight = height;
                 var noteSizeInPixels = new Vector2(noteWidth, noteHeight);
 
-                var localList = new List<NoteVertex>(6)
+                var localList = new[]
                 {
                     new NoteVertex { Position = topLeft, Color = color, TexCoord = new Vector2(0, 0), NoteSize = noteSizeInPixels },
                     new NoteVertex { Position = topRight, Color = color, TexCoord = new Vector2(1, 0), NoteSize = noteSizeInPixels },
@@ -277,29 +274,40 @@ namespace PhosphorMP.Rendering
                 };
 
                 var dict = threadLocalTrackVertices.Value;
-                if (!dict.TryGetValue(visualNote.Track, out var list))
+                if (dict.Contains(visualNote.Track))
                 {
-                    list = [];
+                    var list = dict[visualNote.Track];
+                    list.AddAll(localList);
+                }
+                else
+                {
+                    var list = new ArrayList<NoteVertex>();
+                    list.AddAll(localList);
                     dict[visualNote.Track] = list;
                 }
-                list.AddRange(localList);
             });
-            
-            var mergedTrackVertices = new Dictionary<int, List<NoteVertex>>();
+
+            // Merge all thread local dictionaries into one
+            var mergedTrackVertices = new HashDictionary<int, ArrayList<NoteVertex>>();
             foreach (var dict in threadLocalTrackVertices.Values)
             {
                 foreach (var kvp in dict)
                 {
-                    if (!mergedTrackVertices.TryGetValue(kvp.Key, out var list))
+                    if (mergedTrackVertices.Contains(kvp.Key))
                     {
-                        list = new List<NoteVertex>();
+                        mergedTrackVertices[kvp.Key].AddAll(kvp.Value);
+                    }
+                    else
+                    {
+                        var list = new ArrayList<NoteVertex>();
+                        list.AddAll(kvp.Value);
                         mergedTrackVertices[kvp.Key] = list;
                     }
-                    list.AddRange(kvp.Value);
                 }
             }
-            
-            _trackVertexBuffers = new Dictionary<int, DeviceBuffer>();
+
+            // Create/update vertex buffers per track
+            _trackVertexBuffers = new HashDictionary<int, DeviceBuffer>();
             foreach (var kvp in mergedTrackVertices)
             {
                 var verts = kvp.Value;
@@ -331,7 +339,7 @@ namespace PhosphorMP.Rendering
         private float GetVerticalPositionFromTick(long tick)
         {
             float relativeTick = tick - Logic.CurrentTick;
-            float yPos = _visualizationFramebuffer.Base.Height - (relativeTick * RendererSettings.ScrollSpeed);
+            float yPos = VisualizationFramebuffer.Base.Height - (relativeTick * RendererSettings.ScrollSpeed);
             return yPos;
         }
 
@@ -395,7 +403,7 @@ namespace PhosphorMP.Rendering
                 if (Logic.CurrentMidiFile == null) return;
                 Logic.Playing = false;
                 Logic.CurrentTick = Logic.StartupDelayTicks;
-                Framedumper.FPS = 30;
+                Framedumper.FPS = 60;
                 Framedumper.Start();
                 Logic.Playing = true;
             }
@@ -485,7 +493,6 @@ namespace PhosphorMP.Rendering
             {
                 shader.Dispose();
             }
-
             GC.SuppressFinalize(this);
         }
     }
