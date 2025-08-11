@@ -1,5 +1,5 @@
+using System.Collections.Concurrent;
 using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Png;
 using Veldrid;
 
 namespace PhosphorMP.Rendering
@@ -10,6 +10,8 @@ namespace PhosphorMP.Rendering
         private Texture _colorTarget;
         private Texture _depthTarget;
         private TextureView _colorTargetView;
+        private readonly ConcurrentQueue<SaveRequest> _saveQueue = new();
+        private bool _isSaving = false;
 
         private uint _width;
         private uint _height;
@@ -69,14 +71,14 @@ namespace PhosphorMP.Rendering
             }
         }
 
-        public void CaptureOutput(string filePath)
+        public void CaptureOutputAsync(string filePath)
         {
             var gd = Renderer.Singleton.GraphicsDevice;
             var factory = gd.ResourceFactory;
 
             using CommandList cl = factory.CreateCommandList();
             cl.Begin();
-            
+
             Texture staging = factory.CreateTexture(TextureDescription.Texture2D(
                 _colorTarget.Width,
                 _colorTarget.Height,
@@ -84,49 +86,80 @@ namespace PhosphorMP.Rendering
                 arrayLayers: 1,
                 format: _colorTarget.Format,
                 usage: TextureUsage.Staging));
-            
+
             cl.CopyTexture(_colorTarget, staging);
             cl.End();
             gd.SubmitCommands(cl);
             gd.WaitForIdle();
-            
-            MappedResource map = gd.Map(staging, MapMode.Read);
-            SaveMappedResource(map, filePath);
-            staging.Dispose();
-            gd.Unmap(staging);
-        }
 
-        private void SaveMappedResource(MappedResource map, string filePath)
-        {
+            MappedResource map = gd.Map(staging, MapMode.Read);
+
+            // Copy data immediately to managed array to free GPU resource ASAP
+            byte[] dataCopy = new byte[(int)(map.RowPitch * _colorTarget.Height)];
             unsafe
             {
-                byte* dataPtr = (byte*)map.Data.ToPointer();
-                uint rowPitch = map.RowPitch;
+                System.Runtime.InteropServices.Marshal.Copy(map.Data, dataCopy, 0, dataCopy.Length);
+            }
 
-                using var image = new Image<SixLabors.ImageSharp.PixelFormats.Rgba32>(
-                    (int)_colorTarget.Width, (int)_colorTarget.Height);
+            gd.Unmap(staging);
+            staging.Dispose();
 
-                for (int y = 0; y < _colorTarget.Height; y++)
-                {
-                    byte* rowPtr = dataPtr + (y * rowPitch);
-
-                    for (int x = 0; x < _colorTarget.Width; x++)
-                    {
-                        int i = x * 4;
-                        byte r = rowPtr[i + 0];
-                        byte g = rowPtr[i + 1];
-                        byte b = rowPtr[i + 2];
-                        byte a = rowPtr[i + 3];
-
-                        image[x, (int)_colorTarget.Height - 1 - y] = new SixLabors.ImageSharp.PixelFormats.Rgba32(r, g, b, a);
-                    }
-                }
-
-                using var fs = File.OpenWrite(filePath);
-                image.SaveAsPng(fs);
+            // Enqueue the save request
+            _saveQueue.Enqueue(new SaveRequest
+            {
+                Data = dataCopy,
+                Width = _colorTarget.Width,
+                Height = _colorTarget.Height,
+                RowPitch = map.RowPitch,
+                FilePath = filePath
+            });
+            
+            if (!_isSaving)
+            {
+                _isSaving = true;
+                Task.Run(ProcessSaveQueue);
             }
         }
+        
+        private void ProcessSaveQueue()
+        {
+            while (_saveQueue.TryDequeue(out var request))
+            {
+                SaveToFile(request);
+            }
+            _isSaving = false;
+        }
+        
+        private void SaveToFile(SaveRequest request)
+        {
+            using var image = new Image<SixLabors.ImageSharp.PixelFormats.Rgba32>(
+                (int)request.Width, (int)request.Height);
 
+            unsafe
+            {
+                fixed (byte* dataPtr = request.Data)
+                {
+                    for (int y = 0; y < request.Height; y++)
+                    {
+                        byte* rowPtr = dataPtr + (y * request.RowPitch);
+
+                        for (int x = 0; x < request.Width; x++)
+                        {
+                            int i = x * 4;
+                            byte r = rowPtr[i + 0];
+                            byte g = rowPtr[i + 1];
+                            byte b = rowPtr[i + 2];
+                            byte a = rowPtr[i + 3];
+
+                            image[x, (int)request.Height - 1 - y] = new SixLabors.ImageSharp.PixelFormats.Rgba32(r, g, b, a);
+                        }
+                    }
+                }
+            }
+
+            using var fs = File.OpenWrite(request.FilePath);
+            image.SaveAsPng(fs);
+        }
         
         public void Dispose()
         {
