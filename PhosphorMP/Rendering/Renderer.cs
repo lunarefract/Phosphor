@@ -210,7 +210,7 @@ namespace PhosphorMP.Rendering
             CommandList.ClearDepthStencil(1f);
             UpdateVisualization();
             CommandList.SetPipeline(_visualizationPipeline);
-            foreach (var kvp in _trackVertexBuffers)
+            foreach (var kvp in _trackVertexBuffers.Keys.OrderBy(k => k).Select(k => new KeyValuePair<int, DeviceBuffer>(k, _trackVertexBuffers[k])))
             {
                 int vertexCount = (int)(kvp.Value.SizeInBytes / Unsafe.SizeOf<NoteVertex>());
                 CommandList.SetVertexBuffer(0, kvp.Value);
