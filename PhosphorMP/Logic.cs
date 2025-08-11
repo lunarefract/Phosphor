@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using C5;
 using PhosphorMP.Parser;
 using PhosphorMP.Rendering;
 
@@ -18,7 +19,7 @@ namespace PhosphorMP
                 {
                     StartupDelayTicks = -Utils.Utils.CalculateTicks(3f, 120, _currentMidiFile.TimeDivision);
                     CurrentTick = StartupDelayTicks;
-                    _events = CurrentMidiFile.ParseEventsBetweenTicks(0, CurrentMidiFile.TickCount);
+                    _events = CurrentMidiFile.ParseEventsBetweenTicks(0, CurrentMidiFile.TickCount).ToArray();
                 }
             }
         }
@@ -30,9 +31,9 @@ namespace PhosphorMP
         private double _tickRemainder;
         private MidiFile _currentMidiFile;
         public int StartupDelayTicks { get; private set; } = -4800;
-        private List<MidiEvent> _events = [];
+        private MidiEvent[] _events = [];
         
-        private readonly Dictionary<(byte channel, byte note), (long startTick, int track)> _activeNotes = [];
+        private readonly HashDictionary<(byte channel, byte note), (long startTick, int track)> _activeNotes = [];
         
         public Logic()
         {
@@ -66,17 +67,17 @@ namespace PhosphorMP
                 return;
             
             //_events = CurrentMidiFile.ParseEventsBetweenTicks(CurrentTick, CurrentTick + (CurrentMidiFile.TimeDivision * 4));
-            
-            var trackGroups = _events.GroupBy(e => e.Track).ToList();
+
+            var trackGroups = _events.GroupBy(e => e.Track).ToArray();
 
             var localVisualNotes = new ConcurrentBag<(long startTick, int duration, byte note, byte channel, int track)>();
             //int passedNotesCounter = 0;
 
             Parallel.ForEach(trackGroups, trackEvents =>
             {
-                var localActiveNotes = new Dictionary<(byte channel, byte note), (long startTick, int track)>();
+                var localActiveNotes = new HashDictionary<(byte channel, byte note), (long startTick, int track)>();
 
-                foreach (var midiEvent in trackEvents.OrderBy(e => e.Tick))
+                foreach (var midiEvent in trackEvents) // .OrderBy(e => e.Tick)
                 {
                     if (midiEvent.EventType == MidiEventType.Channel && midiEvent.Data?.Length >= 2)
                     {
@@ -91,7 +92,8 @@ namespace PhosphorMP
                         }
                         else if (midiEvent.IsNoteOff(velocity))
                         {
-                            if (localActiveNotes.TryGetValue((channel, note), out var noteInfo))
+                            var key = (channel, note);
+                            if (localActiveNotes.Find(ref key, out var noteInfo))
                             {
                                 localVisualNotes.Add((noteInfo.startTick, (int)(midiEvent.Tick - noteInfo.startTick), note, channel, noteInfo.track));
                                 localActiveNotes.Remove((channel, note));
