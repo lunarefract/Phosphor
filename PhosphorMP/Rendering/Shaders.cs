@@ -72,12 +72,12 @@ namespace PhosphorMP.Rendering
                     (v_uv.y <= vert_border_uv) ||
                     (v_uv.y >= 1.0 - vert_border_uv);
 
-                if (isBorder)
-                {
+                //if (isBorder)
+                //{
                     // Set border color — for example, solid black
-                    fsout_Color = vec4(0.0, 0.0, 0.0, 1.0);
-                    return;
-                }
+                //    fsout_Color = vec4(0.0, 0.0, 0.0, 1.0);
+                //    return;
+                //}
 
                 // Otherwise, apply your existing color modulation
                 color *= (1.0 + cos(pi * 0.5 * v_uv.x)) * 0.5;

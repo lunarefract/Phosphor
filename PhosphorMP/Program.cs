@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using PhosphorMP.Audio;
 using PhosphorMP.Rendering;
 
@@ -6,7 +7,26 @@ namespace PhosphorMP
 {
     public class Program
     {
-        public static float DeltaTime { get; private set; }
+        public static float DeltaTime
+        {
+            get
+            {
+                var fd = Renderer.Singleton.Framedumper;
+                if (fd is { Active: true })
+                {
+                    switch (fd.DeltaTimeType)
+                    {
+                        case FramedumpDeltaTimeType.NonRealtime:
+                            return 1f / fd.FPS;
+                        case FramedumpDeltaTimeType.RealtimeSlowdown:
+                            throw new NotImplementedException();
+                    }
+                }
+                return _dt;
+            }
+        }
+
+        private static float _dt;
         
         static void Main() // TODO: Console window Title Suffix field
         {
@@ -22,14 +42,20 @@ namespace PhosphorMP
             
             while (Window.Singleton.BaseSdl2Window.Exists)
             {
-                //window.BaseSdl2Window.Title = $"Phosphor [{(1f / Program.DeltaTime):0.0} FPS]"; TODO: Remove soon or replace, fucks up waybar
                 double currentTime = stopwatch.Elapsed.TotalSeconds;
-                DeltaTime = (float)(currentTime - lastTime);
+                double deltaSeconds = currentTime - lastTime;
+
+                if (deltaSeconds <= 0 || double.IsInfinity(deltaSeconds) || double.IsNaN(deltaSeconds))
+                    deltaSeconds = 1.0 / 60.0;
+
+                _dt = (float)deltaSeconds;
+
                 if (logic.CurrentMidiFile != null)
                 {
                     logic.PlaybackLogic();
                 }
                 Renderer.Singleton.Render();
+
                 lastTime = currentTime;
             }
         }

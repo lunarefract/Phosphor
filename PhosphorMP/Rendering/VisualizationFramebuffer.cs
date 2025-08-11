@@ -1,3 +1,5 @@
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Png;
 using Veldrid;
 
 namespace PhosphorMP.Rendering
@@ -67,11 +69,65 @@ namespace PhosphorMP.Rendering
             }
         }
 
-        public void CaptureOutput()
+        public void CaptureOutput(string filePath)
         {
-            //_colorTarget.
+            var gd = Renderer.Singleton.GraphicsDevice;
+            var factory = gd.ResourceFactory;
+
+            using CommandList cl = factory.CreateCommandList();
+            cl.Begin();
+            
+            Texture staging = factory.CreateTexture(TextureDescription.Texture2D(
+                _colorTarget.Width,
+                _colorTarget.Height,
+                mipLevels: 1,
+                arrayLayers: 1,
+                format: _colorTarget.Format,
+                usage: TextureUsage.Staging));
+            
+            cl.CopyTexture(_colorTarget, staging);
+            cl.End();
+            gd.SubmitCommands(cl);
+            gd.WaitForIdle();
+            
+            MappedResource map = gd.Map(staging, MapMode.Read);
+            SaveMappedResource(map, filePath);
+            staging.Dispose();
+            gd.Unmap(staging);
         }
 
+        private void SaveMappedResource(MappedResource map, string filePath)
+        {
+            unsafe
+            {
+                byte* dataPtr = (byte*)map.Data.ToPointer();
+                uint rowPitch = map.RowPitch;
+
+                using var image = new Image<SixLabors.ImageSharp.PixelFormats.Rgba32>(
+                    (int)_colorTarget.Width, (int)_colorTarget.Height);
+
+                for (int y = 0; y < _colorTarget.Height; y++)
+                {
+                    byte* rowPtr = dataPtr + (y * rowPitch);
+
+                    for (int x = 0; x < _colorTarget.Width; x++)
+                    {
+                        int i = x * 4;
+                        byte r = rowPtr[i + 0];
+                        byte g = rowPtr[i + 1];
+                        byte b = rowPtr[i + 2];
+                        byte a = rowPtr[i + 3];
+
+                        image[x, (int)_colorTarget.Height - 1 - y] = new SixLabors.ImageSharp.PixelFormats.Rgba32(r, g, b, a);
+                    }
+                }
+
+                using var fs = File.OpenWrite(filePath);
+                image.SaveAsPng(fs);
+            }
+        }
+
+        
         public void Dispose()
         {
             Base?.Dispose();

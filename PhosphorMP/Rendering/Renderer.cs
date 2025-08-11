@@ -23,6 +23,7 @@ namespace PhosphorMP.Rendering
         public CommandList CommandList { get; private set; }
         public ImGuiRenderer ImGuiRendererSwapchain { get; private set; }
         public ImGuiRenderer ImGuiRendererFramebufferSpecific { get; private set; }
+        public Framedumper Framedumper { get; private set; }
         public Vector3 ClearColor { get; internal set; } = new Vector3(0f, 0f, 0.25f);
         public bool Framelog { get; private set; }
         public List<VisualNote> VisualNotes { get; internal set; } = [];
@@ -36,7 +37,7 @@ namespace PhosphorMP.Rendering
         private ResourceSet _compositeResourceSet;
         private Pipeline _visualizationPipeline;
         private Pipeline _compositePipeline;
-        private VisualizationFramebuffer _visualizationFramebuffer;
+        internal VisualizationFramebuffer _visualizationFramebuffer;
         private ResourceLayout _compositeLayout;
         private Sampler _sampler;
         
@@ -55,7 +56,7 @@ namespace PhosphorMP.Rendering
             {
                 try
                 {
-                    Logic.CurrentMidiFile = new MidiFile(@"/home/memfrag/TTC_-_Necrofantasia.mid"); // TODO: Remove in Release
+                    Logic.CurrentMidiFile = new MidiFile(@"/mnt/nas/Backups/extract/HAHASONGREBLACK.mid"); // TODO: Remove in Release
                 }
                 catch (Exception e)
                 {
@@ -86,6 +87,7 @@ namespace PhosphorMP.Rendering
                 (int)GraphicsDevice.MainSwapchain.Framebuffer.Height);
             
             CreatePipeline();
+            Framedumper = new Framedumper();
             Console.WriteLine("Using device: " + GraphicsDevice.DeviceName);
         }
         
@@ -207,7 +209,6 @@ namespace PhosphorMP.Rendering
             CommandList.ClearColorTarget(0, new RgbaFloat(ClearColor.X, ClearColor.Y, ClearColor.Z, 1f));
             CommandList.ClearDepthStencil(1f);
             UpdateVisualization();
-            ImGuiRendererFramebufferSpecific.Render(GraphicsDevice, CommandList);
             CommandList.SetPipeline(_visualizationPipeline);
             foreach (var kvp in _trackVertexBuffers)
             {
@@ -217,7 +218,9 @@ namespace PhosphorMP.Rendering
                 CommandList.Draw((uint)vertexCount);
             }
             RenderOverlay();
-
+            ImGuiRendererFramebufferSpecific.Render(GraphicsDevice, CommandList);
+            Framedumper.HandleFrame();
+            
             CommandList.SetFramebuffer(GraphicsDevice.SwapchainFramebuffer);
             CommandList.ClearColorTarget(0, RgbaFloat.Black);
 
@@ -233,8 +236,8 @@ namespace PhosphorMP.Rendering
             GraphicsDevice.SubmitCommands(CommandList);
             GraphicsDevice.SwapBuffers();
         }
-        
-        public void UpdateVisualization()
+
+        private void UpdateVisualization()
         {
             var threadLocalTrackVertices = new ThreadLocal<Dictionary<int, List<NoteVertex>>>(
                 () => new Dictionary<int, List<NoteVertex>>(),
@@ -385,6 +388,16 @@ namespace PhosphorMP.Rendering
                 if (Logic.CurrentMidiFile == null) return;
                 Logic.Playing = false;
                 Logic.CurrentTick = Logic.StartupDelayTicks;
+            }
+            
+            if (ImGui.Button("Render (W.I.P)"))
+            {
+                if (Logic.CurrentMidiFile == null) return;
+                Logic.Playing = false;
+                Logic.CurrentTick = Logic.StartupDelayTicks;
+                Framedumper.FPS = 30;
+                Framedumper.Start();
+                Logic.Playing = true;
             }
             
             if (ImGui.Button("Load"))

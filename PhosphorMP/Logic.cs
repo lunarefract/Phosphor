@@ -23,7 +23,7 @@ namespace PhosphorMP
             }
         }
 
-        public ulong PassedNotes { get; internal set; }
+        public ulong PassedNotes { get; internal set; } = 0;
         public long CurrentTick { get; internal set; }
         public bool Playing { get; internal set; }
 
@@ -61,7 +61,7 @@ namespace PhosphorMP
             double totalTicks = (Program.DeltaTime * 1_000_000) / microsecondsPerTick + _tickRemainder;
             long ticksToAdvance = (long)totalTicks;
             _tickRemainder = totalTicks - ticksToAdvance;
-
+            
             if (ticksToAdvance <= 0)
                 return;
             
@@ -70,7 +70,7 @@ namespace PhosphorMP
             var trackGroups = _events.GroupBy(e => e.Track).ToList();
 
             var localVisualNotes = new ConcurrentBag<(long startTick, int duration, byte note, byte channel, int track)>();
-            int passedNotesCounter = 0;
+            //int passedNotesCounter = 0;
 
             Parallel.ForEach(trackGroups, trackEvents =>
             {
@@ -86,7 +86,7 @@ namespace PhosphorMP
 
                         if (midiEvent.IsNoteOn(velocity))
                         {
-                            Interlocked.Increment(ref passedNotesCounter);
+                            //Interlocked.Increment(ref passedNotesCounter);
                             localActiveNotes[(channel, note)] = (midiEvent.Tick, midiEvent.Track);
                         }
                         else if (midiEvent.IsNoteOff(velocity))
@@ -108,7 +108,7 @@ namespace PhosphorMP
                 }
             });
 
-            PassedNotes += (ulong)passedNotesCounter;
+            //PassedNotes += (ulong)passedNotesCounter;
 
             // Merge visual notes in tick order
             foreach (var vn in localVisualNotes.OrderBy(v => v.startTick))
