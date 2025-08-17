@@ -68,7 +68,7 @@ namespace PhosphorMP
             if (ticksToAdvance <= 0)
                 return;
             
-            _events = CurrentMidiFile.ParseEventsBetweenTicks(CurrentTick, CurrentTick + (CurrentMidiFile.TimeDivision * 2));
+            _events = CurrentMidiFile.ParseEventsBetweenTicks(CurrentTick, CurrentTick + (CurrentMidiFile.TimeDivision));
             CurrentMidiFile.WaitTilDone();
 
             var trackGroups = _events.GroupBy(e => e.Track).ToArray();

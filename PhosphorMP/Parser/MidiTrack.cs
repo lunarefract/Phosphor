@@ -16,6 +16,7 @@ namespace PhosphorMP.Parser
         private readonly RestrictedFileStream _trackData;
         private readonly BinaryReader _reader;
         private long _lastParsedTick = 0;
+        private byte _lastRunningStatus = 0;
 
         public MidiTrack(string baseMidiPath, long position, int dataLength, int trackId)
         {
@@ -37,6 +38,7 @@ namespace PhosphorMP.Parser
                 _reader.BaseStream.Position = 0;
                 _lastParsedTick = 0;
                 LastReaderStreamPosition = 0;
+                _lastRunningStatus = 0;
             }
             else
             {
@@ -45,7 +47,7 @@ namespace PhosphorMP.Parser
             }
 
             long ticks = _lastParsedTick;
-            byte runningStatus = 0;
+            byte runningStatus = _lastRunningStatus;
 
             while (_reader.BaseStream.Position < DataLength)
             {
@@ -111,8 +113,8 @@ namespace PhosphorMP.Parser
                 // Save resume info
                 _lastParsedTick = ticks;
                 LastReaderStreamPosition = _reader.BaseStream.Position;
+                _lastRunningStatus = runningStatus;
             }
-
             return events;
         }
         
