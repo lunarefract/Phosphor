@@ -237,7 +237,7 @@ namespace PhosphorMP.Rendering
         {
             var threadLocalTrackVertices = new ThreadLocal<HashDictionary<int, ArrayList<NoteVertex>>>(() => new HashDictionary<int, ArrayList<NoteVertex>>(), trackAllValues: true);
 
-            Parallel.ForEach(VisualNotes, visualNote =>
+            Parallel.ForEach(VisualNotes, Program.ParallelOptions, visualNote =>
             {
                 float y = GetVerticalPositionFromTick(visualNote.StartingTick);
                 float height = GetHeightFromDuration(visualNote.DurationTick);

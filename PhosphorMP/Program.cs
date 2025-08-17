@@ -28,9 +28,16 @@ namespace PhosphorMP
         }
 
         public static float DeltaTime { get; private set; }
+        
+        public static ParallelOptions ParallelOptions { get; private set; } = new ParallelOptions
+        {
+            MaxDegreeOfParallelism = Environment.ProcessorCount * 16, // TODO: Make this internally customizable
+            TaskScheduler = null // TODO: Tune this later
+        };
 
         static void Main() // TODO: Console window Title Suffix field
         {
+            Console.WriteLine($"Using {Environment.ProcessorCount * 16} threads by default");
             var config = new SerializableConfig(true);
             var logic = new Logic();
             var window = new Window();

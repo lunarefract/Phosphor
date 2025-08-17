@@ -74,7 +74,7 @@ namespace PhosphorMP
             var localVisualNotes = new ConcurrentBag<(long startTick, int duration, byte note, byte channel, int track)>();
             //int passedNotesCounter = 0;
 
-            Parallel.ForEach(trackGroups, trackEvents =>
+            Parallel.ForEach(trackGroups, Program.ParallelOptions, trackEvents =>
             {
                 var localActiveNotes = new HashDictionary<(byte channel, byte note), (long startTick, int track)>();
 

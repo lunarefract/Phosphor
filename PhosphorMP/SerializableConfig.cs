@@ -8,9 +8,7 @@ namespace PhosphorMP
     {
         [JsonIgnore]
         public static SerializableConfig Singleton { get; private set; }
-
-        public ParserConfig Parser { get; set; } = new ParserConfig();
-
+        
         private static bool _isLoading = false;
 
         // Parameterless constructor: for JSON deserializer ONLY
@@ -45,10 +43,6 @@ namespace PhosphorMP
 
                 if (tempConfig == null)
                     return;
-
-                // Copy deserialized properties into Singleton instance
-                if (tempConfig.Parser != null)
-                    Singleton.Parser = tempConfig.Parser;
             }
             finally
             {

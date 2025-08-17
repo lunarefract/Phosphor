@@ -88,7 +88,7 @@ namespace PhosphorMP.Rendering
                 if (Logic.CurrentMidiFile == null) return;
                 Logic.Playing = false;
                 Logic.CurrentTick = Logic.StartupDelayTicks;
-                Framedumper.FPS = 120;
+                Framedumper.FPS = 50;
                 Framedumper.Start();
                 Logic.Playing = true;
             }

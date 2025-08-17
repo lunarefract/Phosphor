@@ -1,3 +1,4 @@
+using FastLINQ;
 using PhosphorMP.Extensions;
 
 namespace PhosphorMP.Parser
@@ -27,9 +28,9 @@ namespace PhosphorMP.Parser
             _reader = new BinaryReader(_trackData);
         }
         
-        public List<MidiEvent> ParseEventsBetweenTicks(long startingTick, long endingTick)
+        public FastList<MidiEvent> ParseEventsBetweenTicks(long startingTick, long endingTick)
         {
-            List<MidiEvent> events = new List<MidiEvent>();
+            FastList<MidiEvent> events = [];
 
             // Always parse from start of track for a stable result
             _reader.BaseStream.Position = 0;
@@ -99,9 +100,9 @@ namespace PhosphorMP.Parser
                     throw new InvalidDataException($"Unknown status byte encountered: {statusByte:X2}");
                 }
             }
-
             return events;
         }
+
         private int GetLastReadEventLength(long startPos)
         {
             return (int)(_reader.BaseStream.Position - startPos);
@@ -175,7 +176,7 @@ namespace PhosphorMP.Parser
                         break;
 
                     byte[] data = _reader.ReadBytes(dataBytes);
-
+                    
                     if ((statusByte & 0xF0) == 0x90 && data[1] > 0)
                     {
                         noteCountLocal++;

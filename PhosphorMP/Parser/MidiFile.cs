@@ -1,3 +1,5 @@
+using FastLINQ;
+
 namespace PhosphorMP.Parser
 {
     public class MidiFile : IDisposable
@@ -50,22 +52,11 @@ namespace PhosphorMP.Parser
             FindTracks();
             ParserStats.Stage = ParserStage.PreparingForStreaming;
             
-            if (SerializableConfig.Singleton.Parser.MultiThreadedParsing)
+            Parallel.ForEach(Tracks, Program.ParallelOptions, track =>
             {
-                Parallel.ForEach(Tracks, track =>
-                {
-                    track.ParseEventsFast();
-                    ParserStats.PreparingForStreamingCount++;
-                });
-            }
-            else
-            {
-                foreach (var track in Tracks)
-                {
-                    track.ParseEventsFast();
-                    ParserStats.PreparingForStreamingCount++;
-                }
-            }
+                track.ParseEventsFast();
+                ParserStats.PreparingForStreamingCount++;
+            });
             
             MidiTrack.TempoChanges.Sort((a, b) => a.Tick.CompareTo(b.Tick)); // TODO: Add parser stage for this
 
@@ -78,16 +69,28 @@ namespace PhosphorMP.Parser
             ParserStats.PreparingForStreamingCount = 0;
         }
 
-        public List<MidiEvent> ParseEventsBetweenTicks(long startingTick, long endingTick)
+        public FastList<MidiEvent> ParseEventsBetweenTicks(long startingTick, long endingTick)
         {
-            List<MidiEvent> events = [];
-            foreach (var track in Tracks)
+            var results = new FastList<MidiEvent>[Tracks.Count];
+            
+            Parallel.For(0, Tracks.Count, Program.ParallelOptions, i =>
             {
-                events.AddRange(track.ParseEventsBetweenTicks(startingTick, endingTick));
+                results[i] = Tracks[i].ParseEventsBetweenTicks(startingTick, endingTick);
+            });
+            
+            var events = new FastList<MidiEvent>();
+            foreach (var t in results)
+            {
+                foreach (var trackEvent in t)
+                {
+                    events.Add(trackEvent);
+                }
             }
+
             LastParsedTick = endingTick;
             return events;
         }
+
         
         public int GetCurrentTempoAtTick(long currentTick)
         {
@@ -194,29 +197,16 @@ namespace PhosphorMP.Parser
             Console.WriteLine($"Found {sortedTrackPositions.Count} track positions, now creating MidiTrack classes.");
 
             ParserStats.Stage = ParserStage.CreatingTrackClasses;
-            if (SerializableConfig.Singleton.Parser.MultiThreadedParsing)
+            Parallel.For(0, sortedTrackPositions.Count, Program.ParallelOptions, i =>
             {
-                Parallel.For(0, sortedTrackPositions.Count, i =>
+                var tp = sortedTrackPositions[i];
+                var track = new MidiTrack(FilePath, tp.Key, tp.Value, i);
+                lock (Tracks)
                 {
-                    var tp = sortedTrackPositions[i];
-                    var track = new MidiTrack(FilePath, tp.Key, tp.Value, i);
-                    lock (Tracks)
-                    {
-                        Tracks.Add(track);
-                        ParserStats.CreatedTrackClasses++;
-                    }
-                });
-            }
-            else
-            {
-                for (int i = 0; i < sortedTrackPositions.Count; i++)
-                {
-                    var tp = sortedTrackPositions[i];
-                    var track = new MidiTrack(FilePath, tp.Key, tp.Value, i);
                     Tracks.Add(track);
                     ParserStats.CreatedTrackClasses++;
                 }
-            }
+            });
         }
         
         private ushort ReadBigEndianUInt16()
