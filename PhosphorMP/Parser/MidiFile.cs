@@ -74,6 +74,7 @@ namespace PhosphorMP.Parser
         public FastList<MidiEvent> ParseEventsBetweenTicks(long startingTick, long endingTick)
         {
             _wait = true;
+            _waitHandle.Reset();
             var results = new FastList<MidiEvent>[Tracks.Count];
             
             Parallel.For(0, Tracks.Count, Program.ParallelOptions, i =>
@@ -92,6 +93,7 @@ namespace PhosphorMP.Parser
 
             LastParsedTick = endingTick;
             _wait = false;
+            _waitHandle.Set(); // signal that parsing is complete
             return events;
         }
 

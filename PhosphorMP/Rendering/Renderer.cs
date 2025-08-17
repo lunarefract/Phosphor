@@ -50,7 +50,7 @@ namespace PhosphorMP.Rendering
             {
                 try
                 {
-                    Logic.CurrentMidiFile = new MidiFile(@"/run/media/memfrag/00AAB9F3AAB9E576/BA Rare ASDF Mode rev 1.1.mid"); // TODO: Remove in Release
+                    Logic.CurrentMidiFile = new MidiFile(@"/home/memfrag/mokou.mid"); // TODO: Remove in Release
                 }
                 catch (Exception e)
                 {
