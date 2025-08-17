@@ -14,6 +14,7 @@ namespace PhosphorMP.Parser
         public static List<TempoChangeEvent> TempoChanges { get; } = [];
         public ulong NoteCount { get; private set; } = 0;
         public byte LastStatusByte { get; internal set; } = 0;
+        public long LastReaderStreamPosition { get; internal set; } = 0;
 
         private readonly RestrictedFileStream _trackData;
         private readonly BinaryReader _reader;
@@ -28,22 +29,37 @@ namespace PhosphorMP.Parser
             _reader = new BinaryReader(_trackData);
         }
         
-        public FastList<MidiEvent> ParseEventsBetweenTicks(long startingTick, long endingTick)
+        public FastList<MidiEvent> ParseEventsBetweenTicks(long startingTick, long endingTick, bool resetPosition = false)
         {
             FastList<MidiEvent> events = [];
 
             // Always parse from start of track for a stable result
-            _reader.BaseStream.Position = 0;
+            if (resetPosition)
+            {
+                _reader.BaseStream.Position = 0;
+            }
+            else
+            {
+                _reader.BaseStream.Position = LastReaderStreamPosition;
+            }
+            
             long ticks = 0;
             byte runningStatus = 0;
 
             while (_reader.BaseStream.Position < DataLength)
             {
-                uint deltaTime = (uint)ReadVariableLength(_reader);
-                ticks += deltaTime;
-
+                uint deltaTime = (uint)ReadVariableLength(_reader, out int bytesRead);
+                
                 if (ticks > endingTick)
+                {
+                    if (ticks == startingTick)
+                    {
+                        LastReaderStreamPosition = _reader.BaseStream.Position - bytesRead;
+                    }
                     break;
+                }
+                
+                ticks += deltaTime;
 
                 byte statusByte = _reader.ReadByte();
                 if (statusByte < 0x80)
@@ -63,7 +79,7 @@ namespace PhosphorMP.Parser
                 if (statusByte == 0xFF)
                 {
                     byte metaType = _reader.ReadByte();
-                    int metaLength = ReadVariableLength(_reader);
+                    int metaLength = ReadVariableLength(_reader, out _);
                     byte[] metaData = _reader.ReadBytes(metaLength);
 
                     if (metaType == 0x2F) // End of track
@@ -90,7 +106,7 @@ namespace PhosphorMP.Parser
                 // SysEx event
                 else if (statusByte == 0xF0 || statusByte == 0xF7)
                 {
-                    int sysexLength = ReadVariableLength(_reader);
+                    int sysexLength = ReadVariableLength(_reader, out _);
                     byte[] sysexData = _reader.ReadBytes(sysexLength);
                     if (ticks >= startingTick)
                         events.Add(new MidiEvent(ticks, (int)deltaTime, statusByte, sysExData: sysexData, track: Id));
@@ -117,7 +133,7 @@ namespace PhosphorMP.Parser
             while (_reader.BaseStream.Position < DataLength)
             {
                 // 1. Read delta time (variable length)
-                uint deltaTime = (uint)ReadVariableLength(_reader);
+                uint deltaTime = (uint)ReadVariableLength(_reader, out _);
                 ticks += deltaTime;
 
                 // 2. Peek next byte to check status or running status
@@ -144,7 +160,7 @@ namespace PhosphorMP.Parser
                         break;
 
                     byte metaType = _reader.ReadByte();
-                    int metaLength = ReadVariableLength(_reader);
+                    int metaLength = ReadVariableLength(_reader, out _);
 
                     if (_reader.BaseStream.Position + metaLength > DataLength)
                         break;
@@ -184,7 +200,7 @@ namespace PhosphorMP.Parser
                 }
                 else if (statusByte == 0xF0 || statusByte == 0xF7) // SysEx events
                 {
-                    int sysexLength = ReadVariableLength(_reader);
+                    int sysexLength = ReadVariableLength(_reader, out _);
                     if (_reader.BaseStream.Position + sysexLength > DataLength)
                         break;
 
@@ -200,21 +216,22 @@ namespace PhosphorMP.Parser
             NoteCount = noteCountLocal;
         }
         
-        private int ReadVariableLength(BinaryReader reader)
+        private int ReadVariableLength(BinaryReader reader, out int bytesRead)
         {
             int value = 0;
             byte b;
+            bytesRead = 0;
             do
             {
                 if (reader.BaseStream.Position >= DataLength)
                     throw new EndOfStreamException("Reached end of track data while reading variable length quantity.");
 
                 b = reader.ReadByte();
+                bytesRead++;
                 value = (value << 7) | (b & 0x7F);
             } while ((b & 0x80) != 0);
             return value;
         }
-
         private static int GetVariableLengthSize(int value)
         {
             int size = 1;

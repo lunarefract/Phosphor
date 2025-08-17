@@ -97,7 +97,7 @@ namespace PhosphorMP.Parser
             return events;
         }
 
-        public void WaitTilLastParseEventsCall()
+        public void WaitTilDone()
         {
             _waitHandle.Wait();
         }
