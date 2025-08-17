@@ -17,6 +17,8 @@ namespace PhosphorMP.Parser
         private readonly BinaryReader _reader;
         private long _lastParsedTick = 0;
         private byte _lastRunningStatus = 0;
+        private readonly ManualResetEventSlim _waitHandle = new(false);
+        private bool _wait = false;
 
         public MidiTrack(string baseMidiPath, long position, int dataLength, int trackId)
         {
@@ -30,6 +32,8 @@ namespace PhosphorMP.Parser
         
         public FastList<MidiEvent> ParseEventsBetweenTicks(long startingTick, long endingTick, bool resetPosition = false)
         {
+            _wait = true;
+            _waitHandle.Reset();
             FastList<MidiEvent> events = [];
 
             // If caller wants a reset OR requested tick is before our last tick → restart
@@ -115,6 +119,8 @@ namespace PhosphorMP.Parser
                 LastReaderStreamPosition = _reader.BaseStream.Position;
                 _lastRunningStatus = runningStatus;
             }
+            _wait = false;
+            _waitHandle.Set(); // signal that parsing is complete
             return events;
         }
         
@@ -206,6 +212,11 @@ namespace PhosphorMP.Parser
 
             LengthInTicks = ticks;
             NoteCount = noteCountLocal;
+        }
+        
+        public void WaitTilDone()
+        {
+            _waitHandle.Wait();
         }
         
         private int ReadVariableLength(BinaryReader reader, out int bytesRead)

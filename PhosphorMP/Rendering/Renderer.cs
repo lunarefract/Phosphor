@@ -50,7 +50,7 @@ namespace PhosphorMP.Rendering
             {
                 try
                 {
-                    Logic.CurrentMidiFile = new MidiFile(@"/run/media/memfrag/00AAB9F3AAB9E576/BA Rare ASDF Mode rev 1.1.mid"); // TODO: Remove in Release
+                    Logic.CurrentMidiFile = new MidiFile(@"/mnt/nas/Backups/extract/l_mataps__________.mid"); // TODO: Remove in Release
                 }
                 catch (Exception e)
                 {
@@ -357,6 +357,26 @@ namespace PhosphorMP.Rendering
                     }
                 }
             }
+            
+            /*
+            
+            int totalVerts = 0;
+
+            // Sum all vertices across all thread-local dictionaries
+            foreach (var dict in threadLocalTrackVertices.Values)
+            {
+                foreach (var list in dict.Values)
+                {
+                    totalVerts += list.Count;
+                }
+            }
+
+            // Divide by 6 to get the number of notes
+            int totalNotes = totalVerts / 6;
+
+            Console.WriteLine($"{totalNotes} / {VisualNotes.Count}");
+            
+            */
 
             // Create/update vertex buffers per track
             _trackVertexBuffers = new HashDictionary<int, DeviceBuffer>();

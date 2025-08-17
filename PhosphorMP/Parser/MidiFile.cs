@@ -80,6 +80,7 @@ namespace PhosphorMP.Parser
             Parallel.For(0, Tracks.Count, Program.ParallelOptions, i =>
             {
                 results[i] = Tracks[i].ParseEventsBetweenTicks(startingTick, endingTick);
+                Tracks[i].WaitTilDone();
             });
             
             var events = new FastList<MidiEvent>();
