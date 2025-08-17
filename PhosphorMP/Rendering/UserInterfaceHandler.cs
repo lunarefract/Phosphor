@@ -61,17 +61,30 @@ namespace PhosphorMP.Rendering
         
         public void DefineUserInterface()
         {
-            ImGui.SetNextWindowPos(new Vector2(100, 100), ImGuiCond.Once);
-            ImGui.Begin("Controls", ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings);
+            Vector4 greenBg = new Vector4(0.0275f, 0.6824f, 0.0275f, 0.25f); 
+            Vector4 greenBorder = new Vector4(0.0275f, 0.6824f, 0.0275f, 0.75f); 
+            Vector4 greenTitle = new Vector4(0.0275f, 0.6824f, 0.0275f, 0.8f); 
+            Vector4 greenButton = new Vector4(0.0275f, 0.6824f, 0.0275f, 0.6f); 
+            Vector4 greenButtonHovered = new Vector4(0.0275f, 0.6824f, 0.0275f, 0.8f); 
+            Vector4 greenButtonActive = new Vector4(0.0275f, 0.6824f, 0.0275f, 1.0f); 
 
-            // Playback buttons
+            ImGui.PushStyleColor(ImGuiCol.WindowBg, greenBg);
+            ImGui.PushStyleColor(ImGuiCol.Border, greenBorder);
+            ImGui.PushStyleColor(ImGuiCol.TitleBg, greenTitle);
+            ImGui.PushStyleColor(ImGuiCol.TitleBgActive, greenTitle);
+            ImGui.PushStyleColor(ImGuiCol.Button, greenButton);
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, greenButtonHovered);
+            ImGui.PushStyleColor(ImGuiCol.ButtonActive, greenButtonActive);
+
+            // Begin window without setting position yet
+            ImGui.Begin("UI", ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoNav |  ImGuiWindowFlags.NoMove);
+
+            // --- Playback buttons ---
             if (ImGui.Button(Logic.Playing ? "Pause" : "Play"))
             {
                 if (Logic.CurrentMidiFile == null) return;
                 if (Logic.CurrentTick == Logic.CurrentMidiFile.TickCount)
-                {
                     Logic.CurrentTick = Logic.StartupDelayTicks;
-                }
                 Logic.Playing = !Logic.Playing;
             }
 
@@ -113,8 +126,15 @@ namespace PhosphorMP.Rendering
                 }
             }
 
+            // --- Center window dynamically ---
+            Vector2 windowSize = ImGui.GetWindowSize(); // get actual window size after adding all buttons
+            Vector2 screenSize = new Vector2(Window.Singleton.BaseSdl2Window.Width, Window.Singleton.BaseSdl2Window.Height);
+            Vector2 windowPos = (screenSize - windowSize) / 2;
+            ImGui.SetWindowPos(windowPos, ImGuiCond.Always); // reposition every frame
+
             ImGui.End();
         }
+
 
         private void HandleParsingPopup()
         {

@@ -26,6 +26,14 @@ namespace PhosphorMP.Rendering
 
             CreateFramebuffer();
         }
+        
+        public VisualizationFramebuffer(uint width, uint height)
+        {
+            _width = width;
+            _height = height;
+
+            CreateFramebuffer();
+        }
 
         private void CreateFramebuffer()
         {

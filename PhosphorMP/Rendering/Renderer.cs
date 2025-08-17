@@ -26,6 +26,7 @@ namespace PhosphorMP.Rendering
         
         private HashDictionary<int, DeviceBuffer> _trackVertexBuffers = []; // TODO: Make this only apply to how much colors are in a palette, a lot of note buffers can cause useless CPU overhead, also a lot of notes in a buffer is bad because there are limits
         private DeviceBuffer _uniformBuffer;
+        private DeviceBuffer _uniformBufferComposite;
         private DeviceBuffer _fullscreenQuadBuffer;
         private ResourceSet _resourceSet;
         private ResourceSet _compositeResourceSet;
@@ -62,6 +63,7 @@ namespace PhosphorMP.Rendering
         
         private void Init()
         {
+            Window.Singleton.BaseSdl2Window.Resized += HandleWindowResize;
             if (BaseWindow == null) throw new NullReferenceException("Window is null");
             GraphicsDevice = VeldridStartup.CreateGraphicsDevice(BaseWindow, GraphicsBackend.OpenGL);
             ResourceFactory = GraphicsDevice.ResourceFactory;
@@ -74,9 +76,26 @@ namespace PhosphorMP.Rendering
             Framedumper = new Framedumper();
             Console.WriteLine("Using device: " + GraphicsDevice.DeviceName);
         }
-        
-        private void CreatePipeline()
+
+        private void HandleWindowResize()
         {
+            if (GraphicsDevice == null || GraphicsDevice.MainSwapchain == null) return;
+            
+            uint width = (uint)BaseWindow.Width;
+            uint height = (uint)BaseWindow.Height;
+            
+            //GraphicsDevice.ResizeMainWindow(width, height);
+            GraphicsDevice.MainSwapchain.Resize(width, height);
+            UserInterfaceHandler.ImGuiUserInterfaceRenderer.WindowResized((int)width, (int)height);
+            //OverlayHandler.ImGuiRendererOverlay.WindowResized((int)width, (int)height);
+            CreateCompositePipeline(true);
+
+            Console.WriteLine($"Window resized to {width}x{height}");
+        }
+
+        private void CreatePipeline(bool dispose = false)
+        {
+            if (dispose) _visualizationPipeline.Dispose();
             Matrix4x4 ortho = Matrix4x4.CreateOrthographicOffCenter(
                 0, VisualizationFramebuffer.Base.Width,     // Left to Right
                 VisualizationFramebuffer.Base.Height, 0,  // Bottom to Top (Y grows down)
@@ -127,8 +146,9 @@ namespace PhosphorMP.Rendering
             GraphicsDevice.UpdateBuffer(_uniformBuffer, 0, ref uniforms);
         }
         
-        private void CreateCompositePipeline()
+        private void CreateCompositePipeline(bool dispose = false)
         {
+            if (dispose) _compositePipeline.Dispose();
             Vector2[] quadVertices = // Create fullscreen quad vertices (clip space)
             [
                 new Vector2(-1, -1),
@@ -148,6 +168,10 @@ namespace PhosphorMP.Rendering
                 new ResourceLayoutElementDescription("SourceTexture", ResourceKind.TextureReadOnly, ShaderStages.Fragment),
                 new ResourceLayoutElementDescription("SourceSampler", ResourceKind.Sampler, ShaderStages.Fragment)
             ));
+            
+            _uniformBufferComposite = ResourceFactory.CreateBuffer(new BufferDescription(
+                (uint)Unsafe.SizeOf<CompositeUniforms>(), BufferUsage.UniformBuffer | BufferUsage.Dynamic)
+            );
 
             var textureView = VisualizationFramebuffer.ColorTargetView;
             var sampler = ResourceFactory.CreateSampler(new SamplerDescription());
@@ -196,7 +220,7 @@ namespace PhosphorMP.Rendering
                 Console.WriteLine("Frames to save queue: " + VisualizationFramebuffer.SaveQueue.Count);
             }
             var input = BaseWindow.PumpEvents();
-
+            
             UserInterfaceHandler.ImGuiUserInterfaceRenderer.Update(Program.DeltaTime, input);
 
             CommandList.Begin();
@@ -217,13 +241,7 @@ namespace PhosphorMP.Rendering
             OverlayHandler.ImGuiRendererOverlay.Render(GraphicsDevice, CommandList);
             Framedumper.HandleFrame();
             
-            CommandList.SetFramebuffer(GraphicsDevice.SwapchainFramebuffer);
-            CommandList.ClearColorTarget(0, RgbaFloat.Black);
-
-            CommandList.SetPipeline(_compositePipeline);
-            CommandList.SetVertexBuffer(0, _fullscreenQuadBuffer);
-            CommandList.SetGraphicsResourceSet(0, _compositeResourceSet);
-            CommandList.Draw(6);
+            RenderVisualizationToSwapchain();
 
             UserInterfaceHandler.DefineUserInterface();
             UserInterfaceHandler.ImGuiUserInterfaceRenderer.Render(GraphicsDevice, CommandList);
@@ -232,7 +250,45 @@ namespace PhosphorMP.Rendering
             GraphicsDevice.SubmitCommands(CommandList);
             GraphicsDevice.SwapBuffers();
         }
+        
+        private void RenderVisualizationToSwapchain()
+        {
+            float windowWidth = BaseWindow.Width;
+            float windowHeight = BaseWindow.Height;
+            float fbWidth = VisualizationFramebuffer.Base.Width;
+            float fbHeight = VisualizationFramebuffer.Base.Height;
+            
+            float windowAspect = windowWidth / windowHeight;
+            float fbAspect = fbWidth / fbHeight;
+            
+            float scaleX = 1f, scaleY = 1f;
+            if (windowAspect > fbAspect)
+                scaleX = fbAspect / windowAspect;
+            else
+                scaleY = windowAspect / fbAspect;
+            
+            Matrix4x4 scaleMatrix = Matrix4x4.CreateScale(scaleX, scaleY, 1f);
+            
+            Vector3 translation = new Vector3(0, 0, 0); // modify if needed
+            Matrix4x4 modelMatrix = scaleMatrix * Matrix4x4.CreateTranslation(translation);
+            
+            var uniforms = new Uniforms
+            {
+                MVP = modelMatrix,
+                FramebufferSize = new Vector2(fbWidth, fbHeight)
+            };
+            GraphicsDevice.UpdateBuffer(_uniformBufferComposite, 0, ref uniforms);
 
+            // Render framebuffer to swapchain
+            CommandList.SetFramebuffer(GraphicsDevice.SwapchainFramebuffer);
+            CommandList.ClearColorTarget(0, RgbaFloat.Black);
+
+            CommandList.SetPipeline(_compositePipeline);
+            CommandList.SetVertexBuffer(0, _fullscreenQuadBuffer);
+            CommandList.SetGraphicsResourceSet(0, _compositeResourceSet);
+            CommandList.Draw(6);
+        }
+        
         private void UpdateVisualization()
         {
             var threadLocalTrackVertices = new ThreadLocal<HashDictionary<int, ArrayList<NoteVertex>>>(() => new HashDictionary<int, ArrayList<NoteVertex>>(), trackAllValues: true);

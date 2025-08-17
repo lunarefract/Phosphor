@@ -1,10 +1,10 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
 
-namespace PhosphorMP.Rendering
+namespace PhosphorMP.Rendering.Structs
 {
     [StructLayout(LayoutKind.Sequential)]
-    public struct Uniforms
+    public struct CompositeUniforms
     {
         public Matrix4x4 MVP;
         public Vector2 FramebufferSize;

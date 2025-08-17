@@ -13,6 +13,15 @@ namespace PhosphorMP.Rendering
         public GraphicsDevice GraphicsDevice => Renderer.Singleton.GraphicsDevice;
         public VisualizationFramebuffer  VisualizationFramebuffer => Renderer.Singleton.VisualizationFramebuffer;
         public Logic Logic => Logic.Singleton;
+        public Vector4 WindowBackgroundColor { get; set; } = new(0.0275f, 0.6824f, 0.0275f, 0.1f);
+        public Vector4 FrameWindowBackgroundColor { get; set; } = new(0.0275f, 0.6824f, 0.0275f, 0.25f);
+
+        public const ImGuiWindowFlags OverlayFlags = ImGuiWindowFlags.NoInputs | 
+                                                     ImGuiWindowFlags.NoDecoration | 
+                                                     ImGuiWindowFlags.NoSavedSettings |
+                                                     ImGuiWindowFlags.AlwaysAutoResize |
+                                                     ImGuiWindowFlags.NoFocusOnAppearing | 
+                                                     ImGuiWindowFlags.NoNav;
 
         public OverlayHandler()
         {
@@ -82,8 +91,11 @@ namespace PhosphorMP.Rendering
 
         public void DefineOverlay()
         {
+            if (Lines.Count == 0) return;
+            ImGui.PushStyleColor(ImGuiCol.WindowBg, WindowBackgroundColor);
+            ImGui.PushStyleColor(ImGuiCol.Border, FrameWindowBackgroundColor);
             ImGui.SetNextWindowPos(Position, ImGuiCond.Once);
-            ImGui.Begin("Overlay", ImGuiWindowFlags.NoInputs | ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoFocusOnAppearing | ImGuiWindowFlags.NoNav);
+            ImGui.Begin("Overlay", OverlayFlags);
             var lines = ReplacePlaceholders();
             foreach (var line in lines)
             {
