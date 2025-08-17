@@ -6,6 +6,8 @@ namespace PhosphorMP.Parser
     {
         private readonly Stream _stream;
         private readonly BinaryReader _reader;
+        private readonly ManualResetEventSlim _waitHandle = new(false);
+        private bool _wait = false;
         
         // Public data here
         public ushort FormatType { get; private set; } = 0;
@@ -71,6 +73,7 @@ namespace PhosphorMP.Parser
 
         public FastList<MidiEvent> ParseEventsBetweenTicks(long startingTick, long endingTick)
         {
+            _wait = true;
             var results = new FastList<MidiEvent>[Tracks.Count];
             
             Parallel.For(0, Tracks.Count, Program.ParallelOptions, i =>
@@ -88,9 +91,14 @@ namespace PhosphorMP.Parser
             }
 
             LastParsedTick = endingTick;
+            _wait = false;
             return events;
         }
 
+        public void WaitTilLastParseEventsCall()
+        {
+            _waitHandle.Wait();
+        }
         
         public int GetCurrentTempoAtTick(long currentTick)
         {

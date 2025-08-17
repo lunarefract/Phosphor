@@ -50,7 +50,7 @@ namespace PhosphorMP.Rendering
             {
                 try
                 {
-                    Logic.CurrentMidiFile = new MidiFile(@"/home/memfrag/TTC_-_Necrofantasia.mid"); // TODO: Remove in Release
+                    Logic.CurrentMidiFile = new MidiFile(@"/run/media/memfrag/00AAB9F3AAB9E576/BA Rare ASDF Mode rev 1.1.mid"); // TODO: Remove in Release
                 }
                 catch (Exception e)
                 {
@@ -79,7 +79,7 @@ namespace PhosphorMP.Rendering
 
         private void HandleWindowResize()
         {
-            if (GraphicsDevice == null || GraphicsDevice.MainSwapchain == null) return;
+            if (GraphicsDevice?.MainSwapchain == null) return;
             
             uint width = (uint)BaseWindow.Width;
             uint height = (uint)BaseWindow.Height;
@@ -136,7 +136,7 @@ namespace PhosphorMP.Rendering
                             new VertexElementDescription("Position", VertexElementSemantic.Position, VertexElementFormat.Float2),
                             new VertexElementDescription("Color", VertexElementSemantic.Color, VertexElementFormat.Float3),
                             new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.UShort2_Norm),
-                            new VertexElementDescription("NoteSize", VertexElementSemantic.Position, VertexElementFormat.UShort2_Norm)
+                            new VertexElementDescription("NoteSize", VertexElementSemantic.Position, VertexElementFormat.UShort2_Norm) // TODO: We need to remove this I think
                         )
                     ],
                     shaders),

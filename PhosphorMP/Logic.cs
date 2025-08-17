@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using C5;
+using FastLINQ;
 using PhosphorMP.Parser;
 using PhosphorMP.Rendering;
 using PhosphorMP.Rendering.Structs;
@@ -20,7 +21,7 @@ namespace PhosphorMP
                 {
                     StartupDelayTicks = -Utils.Utils.CalculateTicks(3f, 120, _currentMidiFile.TimeDivision);
                     CurrentTick = StartupDelayTicks;
-                    _events = CurrentMidiFile.ParseEventsBetweenTicks(0, CurrentMidiFile.TickCount).ToArray();
+                    //_events = CurrentMidiFile.ParseEventsBetweenTicks(0, CurrentMidiFile.TickCount);
                 }
             }
         }
@@ -32,7 +33,7 @@ namespace PhosphorMP
         private double _tickRemainder;
         private MidiFile _currentMidiFile;
         public int StartupDelayTicks { get; private set; } = -4800;
-        private MidiEvent[] _events = [];
+        private FastList<MidiEvent> _events = [];
         
         private readonly HashDictionary<(byte channel, byte note), (long startTick, int track)> _activeNotes = [];
         
@@ -67,7 +68,8 @@ namespace PhosphorMP
             if (ticksToAdvance <= 0)
                 return;
             
-            //_events = CurrentMidiFile.ParseEventsBetweenTicks(CurrentTick, CurrentTick + (CurrentMidiFile.TimeDivision * 4));
+            _events = CurrentMidiFile.ParseEventsBetweenTicks(CurrentTick, CurrentTick + (CurrentMidiFile.TimeDivision * 4));
+            //CurrentMidiFile.WaitTilLastParseEventsCall();
 
             var trackGroups = _events.GroupBy(e => e.Track).ToArray();
 
