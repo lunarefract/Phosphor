@@ -1,3 +1,5 @@
+using PhosphorMP.Rendering.Enums;
+
 namespace PhosphorMP.Rendering
 {
     public class Framedumper : IDisposable
@@ -15,6 +17,14 @@ namespace PhosphorMP.Rendering
             }
         }
         private FramedumpDeltaTimeType _deltaTimeType = FramedumpDeltaTimeType.NonRealtime;
+
+        public float Speed
+        {
+            get
+            {
+                return Program.TargetDeltaTime / Program.DeltaTime;
+            }
+        }
 
         public uint FPS
         {

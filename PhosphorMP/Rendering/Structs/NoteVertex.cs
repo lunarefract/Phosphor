@@ -1,7 +1,7 @@
 using System.Numerics;
 using Vortice.Mathematics.PackedVector;
 
-namespace PhosphorMP.Rendering
+namespace PhosphorMP.Rendering.Structs
 {
     public struct NoteVertex
     {

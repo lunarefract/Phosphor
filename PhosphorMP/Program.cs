@@ -2,12 +2,13 @@
 using System.Diagnostics.CodeAnalysis;
 using PhosphorMP.Audio;
 using PhosphorMP.Rendering;
+using PhosphorMP.Rendering.Enums;
 
 namespace PhosphorMP
 {
     public class Program
     {
-        public static float DeltaTime
+        public static float TargetDeltaTime
         {
             get
             {
@@ -22,12 +23,12 @@ namespace PhosphorMP
                             throw new NotImplementedException();
                     }
                 }
-                return _dt;
+                return DeltaTime;
             }
         }
 
-        private static float _dt;
-        
+        public static float DeltaTime { get; private set; }
+
         static void Main() // TODO: Console window Title Suffix field
         {
             var config = new SerializableConfig(true);
@@ -48,7 +49,7 @@ namespace PhosphorMP
                 if (deltaSeconds <= 0 || double.IsInfinity(deltaSeconds) || double.IsNaN(deltaSeconds))
                     deltaSeconds = 1.0 / 60.0;
 
-                _dt = (float)deltaSeconds;
+                DeltaTime = (float)deltaSeconds;
 
                 if (logic.CurrentMidiFile != null)
                 {

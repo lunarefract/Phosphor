@@ -1,18 +1,11 @@
-using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using C5;
-using ImGuiNET;
-using ManagedBass;
-using ManagedBass.Midi;
-using PhosphorMP.Audio;
 using PhosphorMP.Parser;
+using PhosphorMP.Rendering.Structs;
 using Veldrid;
 using Veldrid.Sdl2;
 using Veldrid.StartupUtilities;
-using Vortice.Mathematics.PackedVector;
-using MidiEventType = PhosphorMP.Parser.MidiEventType;
 
 namespace PhosphorMP.Rendering
 {
@@ -22,8 +15,8 @@ namespace PhosphorMP.Rendering
         public GraphicsDevice GraphicsDevice { get; private set; }
         public ResourceFactory ResourceFactory { get; private set; }
         public CommandList CommandList { get; private set; }
-        public ImGuiRenderer ImGuiRendererSwapchain { get; private set; }
-        public ImGuiRenderer ImGuiRendererFramebufferSpecific { get; private set; }
+        public OverlayHandler OverlayHandler { get; private set; }
+        public UserInterfaceHandler UserInterfaceHandler { get; private set; }
         public Framedumper Framedumper { get; private set; }
         public Vector3 ClearColor { get; internal set; } = new Vector3(0f, 0f, 0f);
         public ArrayList<VisualNote> VisualNotes { get; internal set; } = [];
@@ -56,7 +49,7 @@ namespace PhosphorMP.Rendering
             {
                 try
                 {
-                    Logic.CurrentMidiFile = new MidiFile(@"/home/memfrag/Downloads/Mary had a little lamb of DEATH.mid"); // TODO: Remove in Release
+                    Logic.CurrentMidiFile = new MidiFile(@"/home/memfrag/TTC_-_Necrofantasia.mid"); // TODO: Remove in Release
                 }
                 catch (Exception e)
                 {
@@ -75,17 +68,8 @@ namespace PhosphorMP.Rendering
             VisualizationFramebuffer = new VisualizationFramebuffer();
             CreateCompositePipeline();
             CommandList = ResourceFactory.CreateCommandList();
-            ImGuiRendererSwapchain = new ImGuiRenderer(
-                GraphicsDevice,
-                GraphicsDevice.SwapchainFramebuffer.OutputDescription,
-                (int)GraphicsDevice.MainSwapchain.Framebuffer.Width,
-                (int)GraphicsDevice.MainSwapchain.Framebuffer.Height);
-            ImGuiRendererFramebufferSpecific = new ImGuiRenderer(
-                GraphicsDevice,
-                VisualizationFramebuffer.Base.OutputDescription,
-                (int)GraphicsDevice.MainSwapchain.Framebuffer.Width,
-                (int)GraphicsDevice.MainSwapchain.Framebuffer.Height);
-            
+            OverlayHandler = new OverlayHandler();
+            UserInterfaceHandler = new UserInterfaceHandler();
             CreatePipeline();
             Framedumper = new Framedumper();
             Console.WriteLine("Using device: " + GraphicsDevice.DeviceName);
@@ -129,7 +113,7 @@ namespace PhosphorMP.Rendering
                 ResourceLayouts = [uniformLayout],
                 ShaderSet = new ShaderSetDescription(
                     [
-                        new VertexLayoutDescription(
+                        new VertexLayoutDescription( // VertexElementSemantic Note: https://veldrid.dev/api/Veldrid.VertexElementSemantic.html
                             new VertexElementDescription("Position", VertexElementSemantic.Position, VertexElementFormat.Float2),
                             new VertexElementDescription("Color", VertexElementSemantic.Color, VertexElementFormat.Float3),
                             new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.UShort2_Norm),
@@ -200,9 +184,20 @@ namespace PhosphorMP.Rendering
         
         public void Render()
         {
+            if (Framedumper.Active) // TODO: Remove and make it into overlay placeholder
+            {
+                Console.WriteLine("Rendering speed: " + Framedumper.Speed);
+
+                double totalSeconds = Logic.CurrentMidiFile.GetTimeInSeconds(Logic.CurrentMidiFile.TickCount);
+                double currentSeconds = Logic.CurrentMidiFile.GetTimeInSeconds(Logic.CurrentTick);
+                double remainingSeconds = totalSeconds - currentSeconds;
+                double etaSeconds = remainingSeconds / Framedumper.Speed;
+                Console.WriteLine("ETA Completed: " + Utils.Utils.FormatTime(TimeSpan.FromSeconds(etaSeconds))); // TODO: Fix crash while trying to render when playback has never been started
+                Console.WriteLine("Frames to save queue: " + VisualizationFramebuffer.SaveQueue.Count);
+            }
             var input = BaseWindow.PumpEvents();
 
-            ImGuiRendererSwapchain.Update(Program.DeltaTime, input);
+            UserInterfaceHandler.ImGuiUserInterfaceRenderer.Update(Program.DeltaTime, input);
 
             CommandList.Begin();
             CommandList.SetFramebuffer(VisualizationFramebuffer.Base);
@@ -214,11 +209,12 @@ namespace PhosphorMP.Rendering
             {
                 int vertexCount = (int)(kvp.Value.SizeInBytes / Unsafe.SizeOf<NoteVertex>());
                 CommandList.SetVertexBuffer(0, kvp.Value);
-                CommandList.SetGraphicsResourceSet(0, _resourceSet); // update if needed per track
+                CommandList.SetGraphicsResourceSet(0, _resourceSet);
                 CommandList.Draw((uint)vertexCount);
             }
-            RenderOverlay();
-            ImGuiRendererFramebufferSpecific.Render(GraphicsDevice, CommandList);
+
+            OverlayHandler.DefineOverlay();
+            OverlayHandler.ImGuiRendererOverlay.Render(GraphicsDevice, CommandList);
             Framedumper.HandleFrame();
             
             CommandList.SetFramebuffer(GraphicsDevice.SwapchainFramebuffer);
@@ -229,8 +225,8 @@ namespace PhosphorMP.Rendering
             CommandList.SetGraphicsResourceSet(0, _compositeResourceSet);
             CommandList.Draw(6);
 
-            RenderUi();
-            ImGuiRendererSwapchain.Render(GraphicsDevice, CommandList);
+            UserInterfaceHandler.DefineUserInterface();
+            UserInterfaceHandler.ImGuiUserInterfaceRenderer.Render(GraphicsDevice, CommandList);
 
             CommandList.End();
             GraphicsDevice.SubmitCommands(CommandList);
@@ -350,143 +346,6 @@ namespace PhosphorMP.Rendering
             return MathF.Max(height, minHeight);
         }
         
-        private void RenderOverlay()
-        {
-            ImGui.SetNextWindowPos(new Vector2(10, 10), ImGuiCond.Once);
-            ImGui.Begin("Overlay", ImGuiWindowFlags.NoInputs | ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoFocusOnAppearing | ImGuiWindowFlags.NoNav);
-            if (Logic.CurrentMidiFile != null)
-            {
-                ImGui.Text($"Time: {Utils.Utils.FormatTime(TimeSpan.FromSeconds(Logic.CurrentMidiFile.GetTimeInSeconds(Logic.CurrentTick)))} / {Utils.Utils.FormatTime(Logic.CurrentMidiFile.Length)}");
-                ImGui.Text($"Ticks: {Logic.CurrentTick} / {Logic.CurrentMidiFile.TickCount}");
-                ImGui.Text($"Time Division: {Logic.CurrentMidiFile.TimeDivision} PPQ");
-                ImGui.Text($"Tempo: {60_000_000.0 / Logic.CurrentMidiFile.GetCurrentTempoAtTick(Logic.CurrentTick)} BPM");
-                ImGui.Text($"Notes: {Logic.PassedNotes} / {Logic.CurrentMidiFile.NoteCount}");
-            }
-            else
-            {
-                ImGui.Text($"MIDI file not loaded.");
-            }
-            
-            ImGui.Text($"FPS: {(1f / Program.DeltaTime):0.0}");
-            ImGui.Text($"Heap Memory Usage: {GC.GetTotalMemory(false) / 1024f / 1024f:F2} MB");
-            ImGui.Text($"visualNotes count: {VisualNotes.Count}");
-            //ImGui.Text($"Bass Rendertime: {Bass.CPUUsage}");
-            ImGui.End();
-        }
-
-        private void RenderUi()
-        {
-            ImGui.SetNextWindowPos(new Vector2(100, 100), ImGuiCond.Once);
-            ImGui.Begin("Controls", ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings);
-
-            // Playback buttons
-            if (ImGui.Button(Logic.Playing ? "Pause" : "Play"))
-            {
-                if (Logic.CurrentMidiFile == null) return;
-                if (Logic.CurrentTick == Logic.CurrentMidiFile.TickCount)
-                {
-                    Logic.CurrentTick = Logic.StartupDelayTicks;
-                }
-                Logic.Playing = !Logic.Playing;
-            }
-
-            ImGui.SameLine();
-            if (ImGui.Button("Stop"))
-            {
-                if (Logic.CurrentMidiFile == null) return;
-                Logic.Playing = false;
-                Logic.CurrentTick = Logic.StartupDelayTicks;
-            }
-            
-            if (ImGui.Button("Render (W.I.P)"))
-            {
-                if (Logic.CurrentMidiFile == null) return;
-                Logic.Playing = false;
-                Logic.CurrentTick = Logic.StartupDelayTicks;
-                Framedumper.FPS = 60;
-                Framedumper.Start();
-                Logic.Playing = true;
-            }
-            
-            if (ImGui.Button("Load"))
-            {
-                Logic.CurrentMidiFile?.Dispose();
-                _showFileDialog = true;
-                ImGui.OpenPopup("Load File");
-            }
-
-            bool parserPopup = ParserStats.Stage != ParserStage.Idle && ParserStats.Stage != ParserStage.Streaming;            
-            if (parserPopup)
-            {
-                if (ImGui.BeginPopupModal("Parsing", ref parserPopup, ImGuiWindowFlags.AlwaysAutoResize))
-                {
-                    if (ParserStats.Stage == ParserStage.CheckingHeader) ImGui.Text("[1 / 4] Checking header data...");
-                    if (ParserStats.Stage == ParserStage.FindingTracksPositions) ImGui.Text($"[2 / 4] Finding track positions... 0 / {ParserStats.FoundTrackPositions}");
-                    if (ParserStats.Stage == ParserStage.CreatingTrackClasses) ImGui.Text($"[3 / 4] Finding track positions... {Utils.Utils.GetPercentage(ParserStats.CreatedTrackClasses, ParserStats.FoundTrackPositions)} | {ParserStats.CreatedTrackClasses} / {ParserStats.FoundTrackPositions}");
-                    if (ParserStats.Stage == ParserStage.PreparingForStreaming) ImGui.Text($"[4 / 4] Preparing for streaming... {Utils.Utils.GetPercentage(ParserStats.PreparingForStreamingCount, ParserStats.CreatedTrackClasses)} | {ParserStats.PreparingForStreamingCount} / {ParserStats.CreatedTrackClasses}");
-                    ImGui.Text($"Heap Memory Usage: {GC.GetTotalMemory(false) / 1024f / 1024f:F2} MB");
-                    
-                    if (ImGui.Button("Cancel"))
-                    {
-                        ImGui.CloseCurrentPopup();
-                        if (Logic.CurrentMidiFile != null)
-                        {
-                            Logic.CurrentMidiFile.Dispose();
-                            Logic.CurrentMidiFile = null;
-                        }
-                    }
-
-                    ImGui.EndPopup();
-                }
-                ImGui.OpenPopup("Parsing");
-            }
-
-            if (_showFileDialog)
-            {
-                if (ImGui.BeginPopupModal("Load File", ref _showFileDialog, ImGuiWindowFlags.AlwaysAutoResize))
-                {
-                    ImGui.InputText("File Path", ref _filePathInput, 256);
-
-                    if (ImGui.Button("OK"))
-                    {
-                        _showFileDialog = false;
-                        ImGui.CloseCurrentPopup();
-
-                        if (!string.IsNullOrWhiteSpace(_filePathInput))
-                        {
-                            try
-                            {
-                                Logic.CurrentMidiFile = new MidiFile(_filePathInput);
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine($"Failed to load file: {ex.Message}");
-                            }
-                        }
-                    }
-                    ImGui.SameLine();
-
-                    if (ImGui.Button("Cancel"))
-                    {
-                        ImGui.CloseCurrentPopup();
-                        _showFileDialog = false;
-                    }
-                    ImGui.EndPopup();
-                }
-            }
-            ImGui.SameLine();
-            if (ImGui.Button("Unload"))
-            {
-                if (Logic.CurrentMidiFile != null)
-                {
-                    Logic.CurrentMidiFile.Dispose();
-                    Logic.CurrentMidiFile = null;
-                }
-            }
-            
-            ImGui.End();
-        }
-
         public void Dispose() // TODO: Dispose everything
         {
             foreach (var shader in Shaders.CompiledShaders.SelectMany(shaderPair => shaderPair))

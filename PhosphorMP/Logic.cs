@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using C5;
 using PhosphorMP.Parser;
 using PhosphorMP.Rendering;
+using PhosphorMP.Rendering.Structs;
 
 namespace PhosphorMP
 {
@@ -59,7 +60,7 @@ namespace PhosphorMP
             int tempo = CurrentMidiFile.GetCurrentTempoAtTick(CurrentTick);
             double microsecondsPerTick = tempo / (double)CurrentMidiFile.TimeDivision;
 
-            double totalTicks = (Program.DeltaTime * 1_000_000) / microsecondsPerTick + _tickRemainder;
+            double totalTicks = (Program.TargetDeltaTime * 1_000_000) / microsecondsPerTick + _tickRemainder;
             long ticksToAdvance = (long)totalTicks;
             _tickRemainder = totalTicks - ticksToAdvance;
             
@@ -79,7 +80,7 @@ namespace PhosphorMP
 
                 foreach (var midiEvent in trackEvents) // .OrderBy(e => e.Tick)
                 {
-                    if (midiEvent.EventType == MidiEventType.Channel && midiEvent.Data?.Length >= 2)
+                    if (midiEvent is { EventType: MidiEventType.Channel, Data.Length: >= 2 })
                     {
                         byte note = midiEvent.Data[0];
                         byte velocity = midiEvent.Data[1];

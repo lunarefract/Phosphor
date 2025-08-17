@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using PhosphorMP.Rendering.Structs;
 using SixLabors.ImageSharp;
 using Veldrid;
 
@@ -10,7 +11,7 @@ namespace PhosphorMP.Rendering
         private Texture _colorTarget;
         private Texture _depthTarget;
         private TextureView _colorTargetView;
-        private readonly ConcurrentQueue<SaveRequest> _saveQueue = new();
+        public ConcurrentQueue<SaveRequest> SaveQueue { get; private set; } = [];
         private bool _isSaving = false;
 
         private uint _width;
@@ -105,7 +106,7 @@ namespace PhosphorMP.Rendering
             staging.Dispose();
 
             // Enqueue the save request
-            _saveQueue.Enqueue(new SaveRequest
+            SaveQueue.Enqueue(new SaveRequest
             {
                 Data = dataCopy,
                 Width = _colorTarget.Width,
@@ -123,14 +124,16 @@ namespace PhosphorMP.Rendering
         
         private void ProcessSaveQueue()
         {
-            while (_saveQueue.TryDequeue(out var request))
+            var tasks = new List<Task>();
+            while (SaveQueue.TryDequeue(out var request))
             {
-                SaveToFile(request);
+                tasks.Add(Task.Run(() => SaveToFile(request)));
             }
-            _isSaving = false;
+            
+            Task.WhenAll(tasks).ContinueWith(_ => _isSaving = false);
         }
         
-        private void SaveToFile(SaveRequest request)
+        private static void SaveToFile(SaveRequest request)
         {
             using var image = new Image<SixLabors.ImageSharp.PixelFormats.Rgba32>(
                 (int)request.Width, (int)request.Height);

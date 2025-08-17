@@ -1,4 +1,4 @@
-using PhosphorMP.Rendering;
+using PhosphorMP.Rendering.Structs;
 
 namespace PhosphorMP.Utils
 {

@@ -1,4 +1,4 @@
-namespace PhosphorMP.Rendering
+namespace PhosphorMP.Rendering.Enums
 {
     public enum FramedumpDeltaTimeType : byte
     {
