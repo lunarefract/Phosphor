@@ -1,3 +1,4 @@
+using C5;
 using FastLINQ;
 
 namespace PhosphorMP.Parser
@@ -14,9 +15,10 @@ namespace PhosphorMP.Parser
         public ulong TrackCount => (ulong)Tracks.Count;
         public ushort TrackCountHeader { get; private set; } = 0;
         public ushort TimeDivision { get; private set; } = 0;
-        public readonly List<MidiTrack> Tracks = [];
+        public readonly ArrayList<MidiTrack> Tracks = [];
         public TimeSpan Length { get; private set; }
         public long LastParsedTick { get; private set; } = 0;
+        public List<TempoChangeEvent> TempoChanges { get; } = [];
         public string FilePath { get; init; }
         public string FileName => Path.GetFileName(FilePath);
 
@@ -60,11 +62,11 @@ namespace PhosphorMP.Parser
                 ParserStats.PreparingForStreamingCount++;
             });
             
-            MidiTrack.TempoChanges.Sort((a, b) => a.Tick.CompareTo(b.Tick)); // TODO: Add parser stage for this
+            TempoChanges.Sort((a, b) => a.Tick.CompareTo(b.Tick)); // TODO: Add parser stage for this
 
             Length = TimeSpan.FromSeconds(GetTimeInSeconds(TickCount));
             Utils.Utils.FreeGarbageHarder();
-            Console.WriteLine($"Parsed with {TrackCount} (Header: {TrackCountHeader}) tracks, {TickCount} ticks ({Utils.Utils.FormatTime(Length)}) and {MidiTrack.TempoChanges.Count} tempo changes with PPQ of {TimeDivision} and {NoteCount} notes, streaming prepared.");
+            Console.WriteLine($"Parsed with {TrackCount} (Header: {TrackCountHeader}) tracks, {TickCount} ticks ({Utils.Utils.FormatTime(Length)}) and {TempoChanges.Count} tempo changes with PPQ of {TimeDivision} and {NoteCount} notes, streaming prepared.");
             ParserStats.Stage = ParserStage.Streaming;
             ParserStats.CreatedTrackClasses = 0;
             ParserStats.FoundTrackPositions = 0;
@@ -114,18 +116,23 @@ namespace PhosphorMP.Parser
         
         public int GetCurrentTempoAtTick(long currentTick)
         {
-            if (MidiTrack.TempoChanges.Count == 0)
-                return 500_000; // Default 120 BPM
-
             int currentTempo = 500_000; // Start with default
-            foreach (var tempoEvent in MidiTrack.TempoChanges)
+            if (TempoChanges.Count == 0) return currentTempo;
+            
+            if (currentTick >= 0)
             {
-                if (tempoEvent.Tick > currentTick)
-                    break;
+                foreach (var tempoEvent in TempoChanges)
+                {
+                    if (tempoEvent.Tick > currentTick)
+                        break;
 
-                currentTempo = tempoEvent.MicrosecondsPerQuarterNote;
+                    currentTempo = tempoEvent.MicrosecondsPerQuarterNote;
+                }
             }
-
+            else
+            {
+                currentTempo = TempoChanges[0].MicrosecondsPerQuarterNote;
+            }
             return currentTempo;
         }
         
@@ -135,7 +142,7 @@ namespace PhosphorMP.Parser
             long lastTick = 0;
             uint ppq = TimeDivision;
 
-            foreach (var tempoEvent in MidiTrack.TempoChanges)
+            foreach (var tempoEvent in TempoChanges)
             {
                 long deltaTicks = tempoEvent.Tick - lastTick;
 
@@ -153,8 +160,8 @@ namespace PhosphorMP.Parser
             if (lastTick < targetTick)
             {
                 // Use last known tempo
-                var lastTempo = MidiTrack.TempoChanges.Count > 0 
-                    ? MidiTrack.TempoChanges.Last() 
+                var lastTempo = TempoChanges.Count > 0 
+                    ? TempoChanges.Last() 
                     : new TempoChangeEvent(0, 500000);
                 long deltaTicks = targetTick - lastTick;
                 double seconds = (deltaTicks * (uint)lastTempo.MicrosecondsPerQuarterNote) / (ppq * 1_000_000.0);
@@ -220,7 +227,7 @@ namespace PhosphorMP.Parser
             Parallel.For(0, sortedTrackPositions.Count, Program.ParallelOptions, i =>
             {
                 var tp = sortedTrackPositions[i];
-                var track = new MidiTrack(FilePath, tp.Key, tp.Value, i);
+                var track = new MidiTrack(FilePath, tp.Key, tp.Value, i, this);
                 lock (Tracks)
                 {
                     Tracks.Add(track);

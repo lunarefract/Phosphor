@@ -57,11 +57,8 @@ namespace PhosphorMP
                     deltaSeconds = 1.0 / 60.0;
 
                 DeltaTime = (float)deltaSeconds;
-
-                if (logic.CurrentMidiFile != null)
-                {
-                    logic.PlaybackLogic();
-                }
+                
+                logic.Run();
                 Renderer.Singleton.Render();
 
                 lastTime = currentTime;

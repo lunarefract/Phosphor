@@ -9,9 +9,9 @@ namespace PhosphorMP.Parser
         public long TrackStartPosition { get; init; }
         public int DataLength { get; init; }
         public long LengthInTicks { get; private set; } = 0;
-        public static List<TempoChangeEvent> TempoChanges { get; } = [];
         public ulong NoteCount { get; private set; } = 0;
         public long LastReaderStreamPosition { get; internal set; } = 0;
+        public MidiFile MidiFile { get; init; }
 
         private readonly RestrictedFileStream _trackData;
         private readonly BinaryReader _reader;
@@ -20,22 +20,24 @@ namespace PhosphorMP.Parser
         private readonly ManualResetEventSlim _waitHandle = new(false);
         private bool _wait = false;
 
-        public MidiTrack(string baseMidiPath, long position, int dataLength, int trackId)
+        public MidiTrack(string baseMidiPath, long position, int dataLength, int trackId, MidiFile midiFile)
         {
             TrackStartPosition = position;
             DataLength = dataLength;
             Id = trackId;
+            MidiFile = midiFile;
 
             _trackData = new RestrictedFileStream(baseMidiPath, FileMode.Open, position, dataLength);
             _reader = new BinaryReader(_trackData);
         }
         
-        public FastList<MidiEvent> ParseEventsBetweenTicks(long startingTick, long endingTick, bool resetPosition = false) // TODO: BUGFIX -> Find noteoffs of noteons even if beyond endingTick!!!!!!!!!!!
+        public FastList<MidiEvent> ParseEventsBetweenTicks(long startingTick, long endingTick, bool resetPosition = false)
         {
             _wait = true;
             _waitHandle.Reset();
             FastList<MidiEvent> events = [];
-            
+            Dictionary<(int channel, byte note), MidiEvent> openNotes = new();
+
             if (resetPosition || startingTick < _lastParsedTick)
             {
                 _reader.BaseStream.Position = 0;
@@ -45,7 +47,6 @@ namespace PhosphorMP.Parser
             }
             else
             {
-                // Resume where we left off
                 _reader.BaseStream.Position = LastReaderStreamPosition;
             }
 
@@ -55,10 +56,7 @@ namespace PhosphorMP.Parser
             while (_reader.BaseStream.Position < DataLength)
             {
                 int deltaTime = ReadVariableLength(_reader);
-                long eventTick = ticks + deltaTime; // Tick at which this event occurs
-
-                if (eventTick > endingTick)
-                    break;
+                long eventTick = ticks + deltaTime;
 
                 byte statusByte = _reader.ReadByte();
                 if (statusByte < 0x80)
@@ -81,10 +79,15 @@ namespace PhosphorMP.Parser
                     int metaLength = ReadVariableLength(_reader);
                     byte[] metaData = _reader.ReadBytes(metaLength);
 
-                    if (metaType == 0x2F)
+                    if (metaType == 0x2F) // End of track
+                    {
+                        _lastParsedTick = eventTick;
+                        LastReaderStreamPosition = _reader.BaseStream.Position;
+                        _lastRunningStatus = runningStatus;
                         break;
+                    }
 
-                    midiEvent = new MidiEvent(eventTick, (int)deltaTime, statusByte, metaType: metaType, metaData: metaData, track: Id);
+                    midiEvent = new MidiEvent(eventTick, deltaTime, statusByte, metaType: metaType, metaData: metaData, track: Id);
                 }
                 else if (statusByte >= 0x80 && statusByte <= 0xEF) // Channel
                 {
@@ -97,28 +100,63 @@ namespace PhosphorMP.Parser
                     };
 
                     byte[] data = _reader.ReadBytes(dataBytes);
-                    midiEvent = new MidiEvent(eventTick, (int)deltaTime, statusByte, data: data, track: Id);
+                    midiEvent = new MidiEvent(eventTick, deltaTime, statusByte, data: data, track: Id);
+
+                    // Handle NoteOn / NoteOff bookkeeping
+                    int channel = statusByte & 0x0F;
+                    byte note = data[0];
+
+                    if ((statusByte & 0xF0) == 0x90 && data[1] > 0) // NoteOn
+                    {
+                        openNotes[(channel, note)] = midiEvent.Value;
+                    }
+                    else if (((statusByte & 0xF0) == 0x80) || ((statusByte & 0xF0) == 0x90 && data[1] == 0)) // NoteOff
+                    {
+                        var key = (channel, note);
+                        if (openNotes.TryGetValue(key, out MidiEvent openNote))
+                        {
+                            // Ensure NoteOff is added even if eventTick > endingTick
+                            if (eventTick >= startingTick)
+                                events.Add(midiEvent.Value);
+
+                            openNotes.Remove(key);
+                            continue; // Skip adding again later
+                        }
+                    }
                 }
                 else if (statusByte == 0xF0 || statusByte == 0xF7) // SysEx
                 {
                     int sysexLength = ReadVariableLength(_reader);
                     byte[] sysexData = _reader.ReadBytes(sysexLength);
-                    midiEvent = new MidiEvent(eventTick, (int)deltaTime, statusByte, sysExData: sysexData, track: Id);
+                    midiEvent = new MidiEvent(eventTick, deltaTime, statusByte, sysExData: sysexData, track: Id);
                 }
 
-                // Only add events if their tick is in the requested range
-                if (midiEvent != null && eventTick >= startingTick)
+                // Only add events if in range
+                if (midiEvent != null && eventTick >= startingTick && eventTick <= endingTick)
                     events.Add(midiEvent.Value);
 
-                ticks = eventTick; // update current tick
+                // Update state
+                ticks = eventTick;
                 _lastParsedTick = ticks;
                 LastReaderStreamPosition = _reader.BaseStream.Position;
                 _lastRunningStatus = runningStatus;
+
+                if (eventTick > endingTick)
+                    break;
             }
+
+            // Add remaining open notes as NoteOffs beyond endingTick
+            foreach (var kvp in openNotes)
+            {
+                MidiEvent noteOffEvent = kvp.Value;
+                events.Add(noteOffEvent);
+            }
+
             _wait = false;
-            _waitHandle.Set(); // signal that parsing is complete
+            _waitHandle.Set();
             return events;
         }
+
         
         public void ParseEventsFast()
         {
@@ -169,7 +207,7 @@ namespace PhosphorMP.Parser
                     if (metaType == 0x51 && metaLength == 3)
                     {
                         int tempo = (metaData[0] << 16) | (metaData[1] << 8) | metaData[2];
-                        TempoChanges.Add(new TempoChangeEvent(ticks, tempo));
+                        MidiFile.TempoChanges.Add(new TempoChangeEvent(ticks, tempo));
                     }
                 }
                 else if (statusByte >= 0x80 && statusByte <= 0xEF) // MIDI channel message
