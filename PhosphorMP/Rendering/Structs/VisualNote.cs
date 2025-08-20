@@ -5,7 +5,6 @@ namespace PhosphorMP.Rendering.Structs
         public long StartingTick { get; set; }
         public int DurationTick { get; set; }
         public byte Key { get; set; }
-        public byte Channel { get; set; }
-        public int Track { get; set; }
+        public int ColorIndex { get; set; }
     }
 }

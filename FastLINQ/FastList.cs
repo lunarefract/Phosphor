@@ -87,7 +87,7 @@ namespace FastLINQ
         {
             FastList<T> _ilist;
 
-            private ListItem curr;
+            private ListItem _curr;
 
             internal FastIterator(FastList<T> ll)
             {
@@ -95,8 +95,8 @@ namespace FastLINQ
                 Reset();
             }
 
-            public object Current => curr.item;
-            T IEnumerator<T>.Current => curr.item;
+            public object Current => _curr.item;
+            T IEnumerator<T>.Current => _curr.item;
 
             public void Dispose() { }
 
@@ -104,22 +104,24 @@ namespace FastLINQ
             {
                 try
                 {
-                    curr = curr.Next;
-                    return curr != null;
+                    _curr = _curr.Next;
+                    return _curr != null;
                 }
                 catch { return false; }
             }
 
             public void Reset()
             {
-                curr = _ilist._root;
+                _curr = _ilist._root;
             }
         }
 
         public void Add(T item)
         {
-            ListItem li = new();
-            li.item = item;
+            ListItem li = new()
+            {
+                item = item
+            };
 
             if (_root.Next != null && _last != null)
             {

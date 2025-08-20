@@ -34,6 +34,8 @@ namespace PhosphorMP.Rendering
         private Pipeline _compositePipeline;
         private ResourceLayout _compositeLayout;
         private Sampler _sampler;
+        private Matrix4x4 _projectionMatrix;
+        private Vector2[] _noteTexCoords;
         
         private bool _showFileDialog = false;
         private string _filePathInput = "";
@@ -45,12 +47,20 @@ namespace PhosphorMP.Rendering
             else
                 throw new Exception("Renderer already initialized.");
             
+            _noteTexCoords =
+            [
+                new Vector2(0, 0), // top-left
+                new Vector2(1, 0), // top-right
+                new Vector2(1, 1), // bottom-right
+                new Vector2(0, 1)  // bottom-left
+            ];
+            
             Init();
             _ = Task.Run(() =>
             {
                 try
                 {
-                    Logic.CurrentMidiFile = new MidiFile(@"/mnt/nas/Backups/extract/l_mataps__________.mid"); // TODO: Remove in Release
+                    Logic.CurrentMidiFile = new MidiFile(@"/home/memfrag/Downloads/Hypernova.mid"); // TODO: Remove in Release
                 }
                 catch (Exception e)
                 {
@@ -68,6 +78,10 @@ namespace PhosphorMP.Rendering
             GraphicsDevice = VeldridStartup.CreateGraphicsDevice(BaseWindow, GraphicsBackend.OpenGL);
             ResourceFactory = GraphicsDevice.ResourceFactory;
             VisualizationFramebuffer = new VisualizationFramebuffer();
+            _projectionMatrix = Matrix4x4.CreateOrthographicOffCenter(
+                0, VisualizationFramebuffer.Base.Width,     // Left to Right
+                VisualizationFramebuffer.Base.Height, 0,  // Bottom to Top (Y grows down)
+                0f, 1f);
             CreateCompositePipeline();
             CommandList = ResourceFactory.CreateCommandList();
             OverlayHandler = new OverlayHandler();
@@ -89,28 +103,54 @@ namespace PhosphorMP.Rendering
             UserInterfaceHandler.ImGuiUserInterfaceRenderer.WindowResized((int)width, (int)height);
             //OverlayHandler.ImGuiRendererOverlay.WindowResized((int)width, (int)height);
             CreateCompositePipeline(true);
+            UpdateUniforms();
+            UpdateUniforms(true);
 
             Console.WriteLine($"Window resized to {width}x{height}");
+        }
+
+        private Uniforms FillUniforms()
+        {
+            return new Uniforms
+            {
+                MVP = _projectionMatrix,
+                FramebufferSize = new Vector2(VisualizationFramebuffer.Base.Width, VisualizationFramebuffer.Base.Height)
+            };
+        }
+        
+        private CompositeUniforms FillCompositeUniforms()
+        {
+            return new CompositeUniforms
+            {
+                MVP = _projectionMatrix,
+                FramebufferSize = new Vector2(BaseWindow.Width, BaseWindow.Height)
+            };
+        }
+
+        private void UpdateUniforms(bool composite = false)
+        {
+            if (composite)
+            {
+                var uniforms = FillCompositeUniforms();
+                GraphicsDevice.UpdateBuffer(_uniformBufferComposite, 0, ref uniforms);
+            }
+            else
+            {
+                var uniforms = FillUniforms();
+                GraphicsDevice.UpdateBuffer(_uniformBuffer, 0, ref uniforms);
+            }
         }
 
         private void CreatePipeline(bool dispose = false)
         {
             if (dispose) _visualizationPipeline.Dispose();
-            Matrix4x4 ortho = Matrix4x4.CreateOrthographicOffCenter(
-                0, VisualizationFramebuffer.Base.Width,     // Left to Right
-                VisualizationFramebuffer.Base.Height, 0,  // Bottom to Top (Y grows down)
-                0f, 1f);
             
             Shader[] shaders = Shaders.CompileShaders(GraphicsDevice, ResourceFactory);
             var uniformLayout = ResourceFactory.CreateResourceLayout(new ResourceLayoutDescription(
                 new ResourceLayoutElementDescription("MVP", ResourceKind.UniformBuffer, ShaderStages.Vertex))
             );
 
-            var uniforms = new Uniforms
-            {
-                MVP = ortho,
-                FramebufferSize = new Vector2(VisualizationFramebuffer.Base.Width, VisualizationFramebuffer.Base.Height)
-            };
+            var uniforms = FillUniforms();
 
             _uniformBuffer = ResourceFactory.CreateBuffer(new BufferDescription(
                 (uint)Unsafe.SizeOf<Uniforms>(), BufferUsage.UniformBuffer | BufferUsage.Dynamic)
@@ -135,8 +175,7 @@ namespace PhosphorMP.Rendering
                         new VertexLayoutDescription( // VertexElementSemantic Note: https://veldrid.dev/api/Veldrid.VertexElementSemantic.html
                             new VertexElementDescription("Position", VertexElementSemantic.Position, VertexElementFormat.Float2),
                             new VertexElementDescription("Color", VertexElementSemantic.Color, VertexElementFormat.Float3),
-                            new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.UShort2_Norm),
-                            new VertexElementDescription("NoteSize", VertexElementSemantic.Position, VertexElementFormat.UShort2_Norm) // TODO: We need to remove this I think
+                            new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.UShort2_Norm)
                         )
                     ],
                     shaders),
@@ -161,6 +200,7 @@ namespace PhosphorMP.Rendering
 
             _fullscreenQuadBuffer = ResourceFactory.CreateBuffer(new BufferDescription((uint)(quadVertices.Length * sizeof(float) * 2), BufferUsage.VertexBuffer));
             GraphicsDevice.UpdateBuffer(_fullscreenQuadBuffer, 0, quadVertices);
+            var uniforms = FillCompositeUniforms();
             Shader[] shaders = Shaders.CompileCompositeShaders(GraphicsDevice, ResourceFactory);
 
             // Create texture sampler layout
@@ -204,6 +244,7 @@ namespace PhosphorMP.Rendering
                 Outputs = GraphicsDevice.SwapchainFramebuffer.OutputDescription // ← Match swapchain
             };
             _compositePipeline = ResourceFactory.CreateGraphicsPipeline(ref pipelineDesc);
+            GraphicsDevice.UpdateBuffer(_uniformBufferComposite, 0, ref uniforms);
         }
         
         public void Render()
@@ -272,10 +313,10 @@ namespace PhosphorMP.Rendering
             Vector3 translation = new Vector3(0, 0, 0); // modify if needed
             Matrix4x4 modelMatrix = scaleMatrix * Matrix4x4.CreateTranslation(translation);
             
-            var uniforms = new Uniforms
+            var uniforms = new CompositeUniforms
             {
                 MVP = modelMatrix,
-                FramebufferSize = new Vector2(fbWidth, fbHeight)
+                FramebufferSize = new Vector2(windowWidth, windowHeight)
             };
             GraphicsDevice.UpdateBuffer(_uniformBufferComposite, 0, ref uniforms);
 
@@ -304,38 +345,38 @@ namespace PhosphorMP.Rendering
                 var noteWidth = fbWidth / (RendererSettings.MaxKey - RendererSettings.MinKey);
                 float x = (visualNote.Key - RendererSettings.MinKey) * noteWidth;
 
-                Vector3 color = GetColorByTrack(visualNote.Track);
+                Vector3 color = GetColorByTrack(visualNote.ColorIndex);
 
                 Vector2 topLeft = new Vector2(x, y);
                 Vector2 topRight = new Vector2(x + noteWidth, y);
                 Vector2 bottomLeft = new Vector2(x, y + height);
                 Vector2 bottomRight = new Vector2(x + noteWidth, y + height);
 
-                var noteHeight = height;
-                var noteSizeInPixels = new Vector2(noteWidth, noteHeight);
+                //var noteHeight = height;
+                //var noteSizeInPixels = new Vector2(noteWidth, noteHeight);
 
                 var localList = new[]
                 {
-                    new NoteVertex { Position = topLeft, Color = color, TexCoord = new Vector2(0, 0), NoteSize = noteSizeInPixels },
-                    new NoteVertex { Position = topRight, Color = color, TexCoord = new Vector2(1, 0), NoteSize = noteSizeInPixels },
-                    new NoteVertex { Position = bottomRight, Color = color, TexCoord = new Vector2(1, 1), NoteSize = noteSizeInPixels },
+                    new NoteVertex { Position = topLeft, Color = color, TexCoord = _noteTexCoords[0]},
+                    new NoteVertex { Position = topRight, Color = color, TexCoord = _noteTexCoords[1]},
+                    new NoteVertex { Position = bottomRight, Color = color, TexCoord = _noteTexCoords[2]},
 
-                    new NoteVertex { Position = topLeft, Color = color, TexCoord = new Vector2(0, 0), NoteSize = noteSizeInPixels },
-                    new NoteVertex { Position = bottomRight, Color = color, TexCoord = new Vector2(1, 1), NoteSize = noteSizeInPixels },
-                    new NoteVertex { Position = bottomLeft, Color = color, TexCoord = new Vector2(0, 1), NoteSize = noteSizeInPixels }
+                    new NoteVertex { Position = topLeft, Color = color, TexCoord = _noteTexCoords[0]},
+                    new NoteVertex { Position = bottomRight, Color = color, TexCoord = _noteTexCoords[2]},
+                    new NoteVertex { Position = bottomLeft, Color = color, TexCoord = _noteTexCoords[3]}
                 };
 
                 var dict = threadLocalTrackVertices.Value;
-                if (dict.Contains(visualNote.Track))
+                if (dict.Contains(visualNote.ColorIndex))
                 {
-                    var list = dict[visualNote.Track];
+                    var list = dict[visualNote.ColorIndex];
                     list.AddAll(localList);
                 }
                 else
                 {
                     var list = new ArrayList<NoteVertex>();
                     list.AddAll(localList);
-                    dict[visualNote.Track] = list;
+                    dict[visualNote.ColorIndex] = list;
                 }
             });
 

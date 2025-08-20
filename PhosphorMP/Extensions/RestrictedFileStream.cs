@@ -49,15 +49,20 @@ namespace PhosphorMP.Extensions
 
         public override int Read(byte[] buffer, int offset, int count)
         {
+            // Clamp count to remaining bytes
             if (_position + count > _length)
                 count = (int)(_length - _position);
 
-            _baseStream.Position = _start + _position;
+            // Only set position if needed
+            long desiredPos = _start + _position;
+            if (_baseStream.Position != desiredPos)
+                _baseStream.Position = desiredPos;
+
             int bytesRead = _baseStream.Read(buffer, offset, count);
             _position += bytesRead;
             return bytesRead;
         }
-
+        
         public override void Write(byte[] buffer, int offset, int count)
         {
             if (_position + count > _length)

@@ -75,20 +75,29 @@ namespace PhosphorMP.Parser
         {
             _wait = true;
             _waitHandle.Reset();
-            var results = new FastList<MidiEvent>[Tracks.Count];
+
+            int trackCount = Tracks.Count;
+            var results = new FastList<MidiEvent>[trackCount];
             
-            Parallel.For(0, Tracks.Count, Program.ParallelOptions, i =>
+            Parallel.For(0, trackCount, Program.ParallelOptions, i =>
             {
                 results[i] = Tracks[i].ParseEventsBetweenTicks(startingTick, endingTick);
-                Tracks[i].WaitTilDone();
             });
             
-            var events = new FastList<MidiEvent>();
-            foreach (var t in results)
+            for (int i = 0; i < trackCount; i++) // TODO: Remove this sanity check
             {
-                foreach (var trackEvent in t)
+                Tracks[i].WaitTilDone();
+            }
+
+            var events = new FastList<MidiEvent>();
+
+            // Merge efficiently using FastList.Iterator
+            for (int i = 0; i < trackCount; i++)
+            {
+                var iter = results[i].Iterate();
+                while (iter.MoveNext(out var ev))
                 {
-                    events.Add(trackEvent);
+                    events.Add(ev);
                 }
             }
 
@@ -97,7 +106,7 @@ namespace PhosphorMP.Parser
             _waitHandle.Set(); // signal that parsing is complete
             return events;
         }
-
+        
         public void WaitTilDone()
         {
             _waitHandle.Wait();
