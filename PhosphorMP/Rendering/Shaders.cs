@@ -34,7 +34,7 @@ namespace PhosphorMP.Rendering
 
             layout(location = 0) out vec4 fsout_Color;
 
-            const float pi = 3.14159265358979323846;
+            const float pi = 3.1415;
 
             void main()
             {
