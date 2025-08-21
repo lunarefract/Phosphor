@@ -6,7 +6,7 @@ namespace PhosphorMP.Rendering.Structs
     public struct NoteVertex
     {
         public Vector2 Position;     // layout(location = 0)
-        public Vector3 Color;        // layout ...
+        public uint Color;        // layout ...
         public Half2 TexCoord;       // 16-bit floats
     }
 }

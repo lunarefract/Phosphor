@@ -1,12 +1,11 @@
 ﻿using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using PhosphorMP.Audio;
 using PhosphorMP.Rendering;
 using PhosphorMP.Rendering.Enums;
 
 namespace PhosphorMP
 {
-    public class Program
+    public static class Program
     {
         public static float TargetDeltaTime
         {

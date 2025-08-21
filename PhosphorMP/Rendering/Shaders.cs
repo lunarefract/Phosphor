@@ -12,7 +12,7 @@ namespace PhosphorMP.Rendering
         {
             string vertexCode = @"
             layout(location = 0) in vec2 in_Position;
-            layout(location = 1) in vec3 in_Color;
+            layout(location = 1) in uint in_Color;
             layout(location = 2) in vec2 in_TexCoord;
 
             layout(location = 0) out vec3 fragColor;
@@ -24,7 +24,11 @@ namespace PhosphorMP.Rendering
 
             void main()
             {
-                fragColor = in_Color;
+                float col_r = float((in_Color >> 16) & 0xFF) / 255.0;
+                float col_g = float((in_Color >> 8) & 0xFF) / 255.0;
+                float col_b = float((in_Color >> 0) & 0xFF) / 255.0;
+                fragColor = vec3(col_r, col_g, col_b);
+
                 gl_Position = MVP * vec4(in_Position, 0.0, 1.0);
             }
             ";

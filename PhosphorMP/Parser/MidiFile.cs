@@ -1,5 +1,6 @@
 using C5;
 using FastLINQ;
+using PhosphorMP.Extensions;
 
 namespace PhosphorMP.Parser
 {
@@ -8,7 +9,6 @@ namespace PhosphorMP.Parser
         private readonly Stream _stream;
         private readonly BinaryReader _reader;
         private readonly ManualResetEventSlim _waitHandle = new(false);
-        private bool _wait = false;
         
         // Public data here
         public ushort FormatType { get; private set; } = 0;
@@ -21,6 +21,7 @@ namespace PhosphorMP.Parser
         public List<TempoChangeEvent> TempoChanges { get; } = [];
         public string FilePath { get; init; }
         public string FileName => Path.GetFileName(FilePath);
+        public const int FileStreamBufferSize = 1024 * 1024; // 1 MB buffer (default is 4 KB)
 
         public ulong NoteCount
         {
@@ -49,7 +50,7 @@ namespace PhosphorMP.Parser
             if (!File.Exists(filePath)) throw new FileNotFoundException(filePath);
             FilePath = filePath;
             Console.WriteLine("Parsing: " + FileName);
-            _stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            _stream = new MemoryMappedFileStream(filePath);
             _reader = new BinaryReader(_stream);
             ParserStats.Stage = ParserStage.CheckingHeader;
             ParseHeader();
@@ -75,7 +76,6 @@ namespace PhosphorMP.Parser
 
         public FastList<MidiEvent> ParseEventsBetweenTicks(long startingTick, long endingTick)
         {
-            _wait = true;
             _waitHandle.Reset();
 
             int trackCount = Tracks.Count;
@@ -104,7 +104,6 @@ namespace PhosphorMP.Parser
             }
 
             LastParsedTick = endingTick;
-            _wait = false;
             _waitHandle.Set(); // signal that parsing is complete
             return events;
         }
@@ -142,31 +141,31 @@ namespace PhosphorMP.Parser
             long lastTick = 0;
             uint ppq = TimeDivision;
 
-            foreach (var tempoEvent in TempoChanges)
+            int index = 0;
+            while (index < TempoChanges.Count && TempoChanges[index].Tick <= targetTick)
             {
+                var tempoEvent = TempoChanges[index];
+
                 long deltaTicks = tempoEvent.Tick - lastTick;
-
-                // If the tempo event is past the target, break
-                if (tempoEvent.Tick > targetTick)
-                    break;
-
-                double seconds = (deltaTicks * (uint)tempoEvent.MicrosecondsPerQuarterNote) / (ppq * 1_000_000.0);
+                double seconds = deltaTicks * tempoEvent.MicrosecondsPerQuarterNote / (ppq * 1_000_000.0);
                 totalTimeSeconds += seconds;
 
                 lastTick = tempoEvent.Tick;
+                index++;
             }
 
-            // Remaining time from last tempo to target tick
+            // If the last tempo event is before the target tick, continue with its tempo
             if (lastTick < targetTick)
             {
-                // Use last known tempo
-                var lastTempo = TempoChanges.Count > 0 
-                    ? TempoChanges.Last() 
-                    : new TempoChangeEvent(0, 500000);
+                int tempo = TempoChanges.Count > 0 
+                    ? TempoChanges[Math.Max(0, index - 1)].MicrosecondsPerQuarterNote 
+                    : 500_000; // default tempo
+
                 long deltaTicks = targetTick - lastTick;
-                double seconds = (deltaTicks * (uint)lastTempo.MicrosecondsPerQuarterNote) / (ppq * 1_000_000.0);
+                double seconds = deltaTicks * tempo / (ppq * 1_000_000.0);
                 totalTimeSeconds += seconds;
             }
+
             return totalTimeSeconds;
         }
 

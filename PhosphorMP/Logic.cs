@@ -66,59 +66,70 @@ namespace PhosphorMP
             if (ticksToAdvance <= 0) return;
 
             // Parse events in the upcoming window
-            _events = CurrentMidiFile.ParseEventsBetweenTicks(CurrentTick, CurrentTick + (CurrentMidiFile.TimeDivision * 4));
+            _events = CurrentMidiFile.ParseEventsBetweenTicks(CurrentTick, CurrentTick + (CurrentMidiFile.TimeDivision * 2));
             CurrentMidiFile.WaitTilDone();
 
+            var trackGroups = _events.GroupBy(e => e.Track).ToArray();
             var localVisualNotes = new ConcurrentBag<VisualNote>();
 
-            // Process each event in parallel
-            Parallel.ForEach(_events, Program.ParallelOptions, midiEvent =>
+            Parallel.ForEach(trackGroups, Program.ParallelOptions, trackEvents =>
             {
-                if (midiEvent.EventType != MidiEventType.Channel || midiEvent.Data.Length < 2) 
-                    return;
+                var localActiveNotes = new Dictionary<(byte channel, byte note), (long startTick, int track, int colorIndex)>();
 
-                byte note = midiEvent.Data[0];
-                byte velocity = midiEvent.Data[1];
-                byte channel = (byte)(midiEvent.StatusByte & 0x0F);
-                var key = (channel, note);
-
-                if (midiEvent.IsNoteOn(velocity))
+                foreach (var midiEvent in trackEvents.OrderBy(e => e.Tick))
                 {
-                    // Close previous note if still active
-                    if (_activeNotes.TryGetValue(key, out var prev))
+                    if (midiEvent is { EventType: MidiEventType.Channel, Data.Length: >= 2 })
                     {
-                        localVisualNotes.Add(new VisualNote
-                        {
-                            StartingTick = prev.startTick,
-                            DurationTick = (int)(midiEvent.Tick - prev.startTick),
-                            Key = note,
-                            ColorIndex = prev.colorIndex
-                        });
-                    }
+                        byte note = midiEvent.Data[0];
+                        byte velocity = midiEvent.Data[1];
+                        byte channel = (byte)(midiEvent.StatusByte & 0x0F);
+                        var key = (channel, note);
+                        int colorIndex = midiEvent.Track + channel;
 
-                    // Add/update active note
-                    _activeNotes[key] = (midiEvent.Tick, midiEvent.Track);
+                        if (midiEvent.IsNoteOn(velocity))
+                        {
+                            if (localActiveNotes.TryGetValue(key, out var prev))
+                            {
+                                // Close previous unfinished note
+                                localVisualNotes.Add(new VisualNote
+                                {
+                                    StartingTick = prev.startTick,
+                                    DurationTick = (int)(midiEvent.Tick - prev.startTick),
+                                    Key = note,
+                                    ColorIndex = prev.colorIndex
+                                });
+                            }
+
+                            // Start new note
+                            localActiveNotes[key] = (midiEvent.Tick, midiEvent.Track, colorIndex); // just an example for colorIndex
+                        }
+                        else if (midiEvent.IsNoteOff(velocity))
+                        {
+                            if (localActiveNotes.TryGetValue(key, out var startInfo))
+                            {
+                                localVisualNotes.Add(new VisualNote
+                                {
+                                    StartingTick = startInfo.startTick,
+                                    DurationTick = (int)(midiEvent.Tick - startInfo.startTick),
+                                    Key = note,
+                                    ColorIndex = startInfo.colorIndex
+                                });
+                                localActiveNotes.Remove(key);
+                            }
+                        }
+                    }
                 }
-                else if (midiEvent.IsNoteOff(velocity))
+
+                // Merge leftovers into global _activeNotes
+                lock (_activeNotes)
                 {
-                    // Remove from active notes and create a visual note
-                    if (_activeNotes.TryRemove(key, out var startInfo))
-                    {
-                        localVisualNotes.Add(new VisualNote
-                        {
-                            StartingTick = startInfo.startTick,
-                            DurationTick = (int)(midiEvent.Tick - startInfo.startTick),
-                            Key = note,
-                            ColorIndex = startInfo.colorIndex
-                        });
-                    }
-                    else
-                    { 
-                        Console.WriteLine($"NoteOff at tick {midiEvent.Tick} for note {note} on channel {channel} without a prior NoteOn.");
-                    }
+                    foreach (var kv in localActiveNotes)
+                        _activeNotes[kv.Key] = (kv.Value.startTick, kv.Value.track);
                 }
             });
 
+            Renderer.Singleton.VisualNotes.Clear();
+            
             // Merge collected visual notes in tick order
             foreach (var vn in localVisualNotes.OrderBy(v => v.StartingTick))
                 Renderer.Singleton.VisualNotes.Add(vn);

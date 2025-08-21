@@ -24,7 +24,7 @@ namespace PhosphorMP.Rendering
         private static Sdl2Window BaseWindow => Window.Singleton.BaseSdl2Window;
         private Logic Logic => Logic.Singleton;
         
-        private HashDictionary<int, DeviceBuffer> _trackVertexBuffers = []; // TODO: Make this only apply to how much colors are in a palette, a lot of note buffers can cause useless CPU overhead, also a lot of notes in a buffer is bad because there are limits
+        private List<NoteColorVertexBuffer> _noteColorVertexBuffers = []; // TODO: Make this only apply to how much colors are in a palette, a lot of note buffers can cause useless CPU overhead, also a lot of notes in a buffer is bad because there are limits
         private DeviceBuffer _uniformBuffer;
         private DeviceBuffer _uniformBufferComposite;
         private DeviceBuffer _fullscreenQuadBuffer;
@@ -32,14 +32,17 @@ namespace PhosphorMP.Rendering
         private ResourceSet _compositeResourceSet;
         private Pipeline _visualizationPipeline;
         private Pipeline _compositePipeline;
-        private ResourceLayout _compositeLayout;
-        private Sampler _sampler;
+        //private ResourceLayout _compositeLayout;
+        //private Sampler _sampler;
         private Matrix4x4 _projectionMatrix;
-        private Vector2[] _noteTexCoords;
-        
-        private bool _showFileDialog = false;
-        private string _filePathInput = "";
-        
+
+        public static readonly Vector2[] QuadTexCoords = [
+            new Vector2(0, 0), // top-left
+            new Vector2(1, 0), // top-right
+            new Vector2(1, 1), // bottom-right
+            new Vector2(0, 1)  // bottom-left
+        ];
+
         public Renderer()
         {
             if (Singleton == null)
@@ -47,22 +50,14 @@ namespace PhosphorMP.Rendering
             else
                 throw new Exception("Renderer already initialized.");
             
-            _noteTexCoords =
-            [
-                new Vector2(0, 0), // top-left
-                new Vector2(1, 0), // top-right
-                new Vector2(1, 1), // bottom-right
-                new Vector2(0, 1)  // bottom-left
-            ];
-            
             Init();
             _ = Task.Run(() =>
             {
                 try
                 {
-                    Logic.CurrentMidiFile = new MidiFile(@"/home/memfrag/Downloads/Hypernova.mid"); // TODO: Remove in Release
+                    Logic.CurrentMidiFile = new MidiFile(@"/run/media/memfrag/00AAB9F3AAB9E576/Hypernova.mid"); // TODO: Remove in Release
                 }
-                catch (Exception e)
+                catch (Exception)
                 {
                     // ignored
                 }
@@ -174,7 +169,7 @@ namespace PhosphorMP.Rendering
                     [
                         new VertexLayoutDescription( // VertexElementSemantic Note: https://veldrid.dev/api/Veldrid.VertexElementSemantic.html
                             new VertexElementDescription("Position", VertexElementSemantic.Position, VertexElementFormat.Float2),
-                            new VertexElementDescription("Color", VertexElementSemantic.Color, VertexElementFormat.Float3),
+                            new VertexElementDescription("Color", VertexElementSemantic.Color, VertexElementFormat.UInt1),
                             new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.UShort2_Norm)
                         )
                     ],
@@ -270,12 +265,17 @@ namespace PhosphorMP.Rendering
             CommandList.ClearDepthStencil(1f);
             UpdateVisualization();
             CommandList.SetPipeline(_visualizationPipeline);
-            foreach (var kvp in _trackVertexBuffers.Keys.OrderBy(k => k).Select(k => new KeyValuePair<int, DeviceBuffer>(k, _trackVertexBuffers[k])))
+            foreach (var vertexBuffer in _noteColorVertexBuffers)
             {
-                int vertexCount = (int)(kvp.Value.SizeInBytes / Unsafe.SizeOf<NoteVertex>());
-                CommandList.SetVertexBuffer(0, kvp.Value);
+                if (!vertexBuffer.NeedsRender)
+                    continue;
+
+                int vertexCount = (int)(vertexBuffer.Buffer.SizeInBytes / Unsafe.SizeOf<NoteVertex>());
+                CommandList.SetVertexBuffer(0, vertexBuffer.Buffer);
                 CommandList.SetGraphicsResourceSet(0, _resourceSet);
                 CommandList.Draw((uint)vertexCount);
+
+                vertexBuffer.NeedsRender = false; // reset after rendering
             }
 
             OverlayHandler.DefineOverlay();
@@ -332,7 +332,9 @@ namespace PhosphorMP.Rendering
         
         private void UpdateVisualization()
         {
-            var threadLocalTrackVertices = new ThreadLocal<HashDictionary<int, ArrayList<NoteVertex>>>(() => new HashDictionary<int, ArrayList<NoteVertex>>(), trackAllValues: true);
+            var threadLocalTrackVertices = new ThreadLocal<HashDictionary<int, ArrayList<NoteVertex>>>(
+                () => new HashDictionary<int, ArrayList<NoteVertex>>(), trackAllValues: true
+            );
 
             Parallel.ForEach(VisualNotes, Program.ParallelOptions, visualNote =>
             {
@@ -345,32 +347,22 @@ namespace PhosphorMP.Rendering
                 var noteWidth = fbWidth / (RendererSettings.MaxKey - RendererSettings.MinKey);
                 float x = (visualNote.Key - RendererSettings.MinKey) * noteWidth;
 
-                Vector3 color = GetColorByTrack(visualNote.ColorIndex);
-
-                Vector2 topLeft = new Vector2(x, y);
-                Vector2 topRight = new Vector2(x + noteWidth, y);
-                Vector2 bottomLeft = new Vector2(x, y + height);
-                Vector2 bottomRight = new Vector2(x + noteWidth, y + height);
-
-                //var noteHeight = height;
-                //var noteSizeInPixels = new Vector2(noteWidth, noteHeight);
+                uint color = GetColorByTrack(visualNote.ColorIndex);
 
                 var localList = new[]
                 {
-                    new NoteVertex { Position = topLeft, Color = color, TexCoord = _noteTexCoords[0]},
-                    new NoteVertex { Position = topRight, Color = color, TexCoord = _noteTexCoords[1]},
-                    new NoteVertex { Position = bottomRight, Color = color, TexCoord = _noteTexCoords[2]},
-
-                    new NoteVertex { Position = topLeft, Color = color, TexCoord = _noteTexCoords[0]},
-                    new NoteVertex { Position = bottomRight, Color = color, TexCoord = _noteTexCoords[2]},
-                    new NoteVertex { Position = bottomLeft, Color = color, TexCoord = _noteTexCoords[3]}
+                    new NoteVertex { Position = new Vector2(x, y), Color = color, TexCoord = QuadTexCoords[0]},
+                    new NoteVertex { Position = new Vector2(x + noteWidth, y), Color = color, TexCoord = QuadTexCoords[1]},
+                    new NoteVertex { Position = new Vector2(x + noteWidth, y + height), Color = color, TexCoord = QuadTexCoords[2]},
+                    new NoteVertex { Position = new Vector2(x, y), Color = color, TexCoord = QuadTexCoords[0]},
+                    new NoteVertex { Position = new Vector2(x + noteWidth, y + height), Color = color, TexCoord = QuadTexCoords[2]},
+                    new NoteVertex { Position = new Vector2(x, y + height), Color = color, TexCoord = QuadTexCoords[3]}
                 };
 
                 var dict = threadLocalTrackVertices.Value;
                 if (dict.Contains(visualNote.ColorIndex))
                 {
-                    var list = dict[visualNote.ColorIndex];
-                    list.AddAll(localList);
+                    dict[visualNote.ColorIndex].AddAll(localList);
                 }
                 else
                 {
@@ -380,16 +372,14 @@ namespace PhosphorMP.Rendering
                 }
             });
 
-            // Merge all thread local dictionaries into one
+            // Merge all thread-local dictionaries
             var mergedTrackVertices = new HashDictionary<int, ArrayList<NoteVertex>>();
             foreach (var dict in threadLocalTrackVertices.Values)
             {
                 foreach (var kvp in dict)
                 {
                     if (mergedTrackVertices.Contains(kvp.Key))
-                    {
                         mergedTrackVertices[kvp.Key].AddAll(kvp.Value);
-                    }
                     else
                     {
                         var list = new ArrayList<NoteVertex>();
@@ -398,41 +388,44 @@ namespace PhosphorMP.Rendering
                     }
                 }
             }
-            
-            /*
-            
-            int totalVerts = 0;
 
-            // Sum all vertices across all thread-local dictionaries
-            foreach (var dict in threadLocalTrackVertices.Values)
-            {
-                foreach (var list in dict.Values)
-                {
-                    totalVerts += list.Count;
-                }
-            }
-
-            // Divide by 6 to get the number of notes
-            int totalNotes = totalVerts / 6;
-
-            Console.WriteLine($"{totalNotes} / {VisualNotes.Count}");
-            
-            */
-
-            // Create/update vertex buffers per track
-            _trackVertexBuffers = new HashDictionary<int, DeviceBuffer>();
+            // Update or create vertex buffers
             foreach (var kvp in mergedTrackVertices)
             {
+                int colorIndex = kvp.Key;
                 var verts = kvp.Value;
-                var buffer = GraphicsDevice.ResourceFactory.CreateBuffer(new BufferDescription(
-                    (uint)(verts.Count * Unsafe.SizeOf<NoteVertex>()),
-                    BufferUsage.VertexBuffer | BufferUsage.Dynamic));
-                GraphicsDevice.UpdateBuffer(buffer, 0, verts.ToArray());
-                _trackVertexBuffers[kvp.Key] = buffer;
+
+                // Try to find existing buffer
+                var buffer = _noteColorVertexBuffers.FirstOrDefault(b => b.ColorIndex == colorIndex);
+
+                // If none exists, create a new one
+                if (buffer == null)
+                {
+                    buffer = new NoteColorVertexBuffer
+                    {
+                        ColorIndex = colorIndex
+                    };
+                    _noteColorVertexBuffers.Add(buffer);
+                }
+
+                // Check if we need a new GPU buffer
+                bool needsNewBuffer = buffer.Buffer == null || buffer.Buffer.SizeInBytes < verts.Count * Unsafe.SizeOf<NoteVertex>();
+                if (needsNewBuffer)
+                {
+                    buffer.Buffer?.Dispose();
+                    buffer.Buffer = GraphicsDevice.ResourceFactory.CreateBuffer(new BufferDescription(
+                        (uint)(verts.Count * Unsafe.SizeOf<NoteVertex>()),
+                        BufferUsage.VertexBuffer | BufferUsage.Dynamic
+                    ));
+                }
+
+                // Update the buffer
+                GraphicsDevice.UpdateBuffer(buffer.Buffer, 0, verts.ToArray());
+                buffer.NeedsRender = true;
             }
         }
         
-        private Vector3 GetColorByTrack(int trackNumber)
+        private uint GetColorByTrack(int trackNumber) // TODO: Precalculate in another class
         {
             Vector3[] trackColors =
             [
@@ -445,9 +438,17 @@ namespace PhosphorMP.Rendering
                 new Vector3(1.0f, 0.5f, 0.0f),   // Orange
                 new Vector3(0.5f, 0.0f, 1.0f)    // Purple
             ];
+
             int index = trackNumber % trackColors.Length;
-            return trackColors[index];
+            Vector3 color = trackColors[index];
+
+            byte r = (byte)(color.X * 255f);
+            byte g = (byte)(color.Y * 255f);
+            byte b = (byte)(color.Z * 255f);
+
+            return (uint)((r << 16) | (g << 8) | b);
         }
+
         
         private float GetVerticalPositionFromTick(long tick)
         {

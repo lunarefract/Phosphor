@@ -1,5 +1,8 @@
+using PhosphorMP.Parser;
+
 namespace PhosphorMP.Extensions
 {
+    // TODO: Remove, or keep it for future
     public class RestrictedFileStream : Stream
     {
         private readonly FileStream _baseStream;
@@ -9,7 +12,14 @@ namespace PhosphorMP.Extensions
 
         public RestrictedFileStream(string path, FileMode mode, long start, long length)
         {
-            _baseStream = new FileStream(path, mode, FileAccess.ReadWrite);
+            _baseStream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: MidiFile.FileStreamBufferSize,
+                FileOptions.SequentialScan // hint for sequential reading
+            );
             _start = start;
             _length = length;
 
