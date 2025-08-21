@@ -49,7 +49,7 @@ namespace PhosphorMP.Parser
         
         public MidiFile(string filePath)
         {
-            if (!File.Exists(filePath)) throw new FileNotFoundException(filePath);
+            if (!File.Exists(filePath)) throw new FileNotFoundException("File does not exist: " + filePath);
             FilePath = filePath;
             Console.WriteLine("Parsing: " + FileName);
             _stream = new MemoryMappedFileStream(filePath);

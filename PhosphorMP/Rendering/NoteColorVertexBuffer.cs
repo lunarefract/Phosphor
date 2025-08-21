@@ -6,6 +6,7 @@ namespace PhosphorMP.Rendering
     {
         public DeviceBuffer Buffer { get; internal set; }
         public int ColorIndex { get; internal set; }
+        public int VertexCount { get; internal set; }
         public bool NeedsRender { get; internal set; }
     }
 }

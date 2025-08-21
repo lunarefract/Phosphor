@@ -55,15 +55,13 @@ namespace PhosphorMP.Rendering
             {
                 try
                 {
-                    Logic.CurrentMidiFile = new MidiFile(@"/run/media/memfrag/00AAB9F3AAB9E576/Hypernova.mid"); // TODO: Remove in Release
+                    Logic.CurrentMidiFile = new MidiFile(@"mokou.mid"); // TODO: Remove in Release
                 }
                 catch (Exception)
                 {
                     // ignored
                 }
             });
-
-            //_visualNotes = Utils.Utils.GenerateKeyboardSweep();
         }
         
         private void Init()
@@ -96,7 +94,6 @@ namespace PhosphorMP.Rendering
             //GraphicsDevice.ResizeMainWindow(width, height);
             GraphicsDevice.MainSwapchain.Resize(width, height);
             UserInterfaceHandler.ImGuiUserInterfaceRenderer.WindowResized((int)width, (int)height);
-            //OverlayHandler.ImGuiRendererOverlay.WindowResized((int)width, (int)height);
             CreateCompositePipeline(true);
             UpdateUniforms();
             UpdateUniforms(true);
@@ -269,11 +266,10 @@ namespace PhosphorMP.Rendering
             {
                 if (!vertexBuffer.NeedsRender)
                     continue;
-
-                int vertexCount = (int)(vertexBuffer.Buffer.SizeInBytes / Unsafe.SizeOf<NoteVertex>());
+                
                 CommandList.SetVertexBuffer(0, vertexBuffer.Buffer);
                 CommandList.SetGraphicsResourceSet(0, _resourceSet);
-                CommandList.Draw((uint)vertexCount);
+                CommandList.Draw((uint)vertexBuffer.VertexCount);
 
                 vertexBuffer.NeedsRender = false; // reset after rendering
             }
@@ -398,17 +394,13 @@ namespace PhosphorMP.Rendering
                 // Try to find existing buffer
                 var buffer = _noteColorVertexBuffers.FirstOrDefault(b => b.ColorIndex == colorIndex);
 
-                // If none exists, create a new one
                 if (buffer == null)
                 {
-                    buffer = new NoteColorVertexBuffer
-                    {
-                        ColorIndex = colorIndex
-                    };
+                    buffer = new NoteColorVertexBuffer { ColorIndex = colorIndex };
                     _noteColorVertexBuffers.Add(buffer);
                 }
 
-                // Check if we need a new GPU buffer
+                // Ensure buffer is created or resized
                 bool needsNewBuffer = buffer.Buffer == null || buffer.Buffer.SizeInBytes < verts.Count * Unsafe.SizeOf<NoteVertex>();
                 if (needsNewBuffer)
                 {
@@ -418,9 +410,9 @@ namespace PhosphorMP.Rendering
                         BufferUsage.VertexBuffer | BufferUsage.Dynamic
                     ));
                 }
-
-                // Update the buffer
+                
                 GraphicsDevice.UpdateBuffer(buffer.Buffer, 0, verts.ToArray());
+                buffer.VertexCount = verts.Count; 
                 buffer.NeedsRender = true;
             }
         }
