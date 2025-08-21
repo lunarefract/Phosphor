@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using C5;
 using FastLINQ;
 using PhosphorMP.Parser;
 using PhosphorMP.Rendering;
@@ -27,7 +26,7 @@ namespace PhosphorMP
         }
 
         public ulong PassedNotes { get; internal set; } = 0;
-        public long CurrentTick { get; internal set; } = -int.MaxValue;
+        public long CurrentTick { get; internal set; } = -long.MaxValue;
         public bool Playing { get; internal set; }
 
         private double _tickRemainder;
@@ -35,7 +34,7 @@ namespace PhosphorMP
         public int StartupDelayTicks { get; private set; } = -int.MaxValue;
         private FastList<MidiEvent> _events = [];
 
-        private ConcurrentDictionary<(byte channel, byte note), (long startTick, int colorIndex)> _activeNotes = [];
+        private readonly ConcurrentDictionary<(byte channel, byte note), (long startTick, int colorIndex)> _activeNotes = [];
 
         public Logic()
         {
@@ -150,19 +149,22 @@ namespace PhosphorMP
 
         private void CloseRemainingNotes()
         {
-            foreach (var kv in _activeNotes)
+            lock (_activeNotes)
             {
-                var key = kv.Key;
-                var value = kv.Value;
+                foreach (var kv in _activeNotes)
+                {
+                    var key = kv.Key;
+                    var value = kv.Value;
 
-                AddVisualNote(
-                    value.startTick,
-                    (int)(CurrentMidiFile.TickCount - value.startTick),
-                    key.note,
-                    value.colorIndex
-                );
+                    AddVisualNote(
+                        value.startTick,
+                        (int)(CurrentMidiFile.TickCount - value.startTick),
+                        key.note,
+                        value.colorIndex
+                    );
+                }
+                _activeNotes.Clear();
             }
-            _activeNotes.Clear();
         }
 
         public void Dispose()

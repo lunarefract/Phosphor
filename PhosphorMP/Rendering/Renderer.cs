@@ -24,7 +24,7 @@ namespace PhosphorMP.Rendering
         private static Sdl2Window BaseWindow => Window.Singleton.BaseSdl2Window;
         private Logic Logic => Logic.Singleton;
         
-        private List<NoteColorVertexBuffer> _noteColorVertexBuffers = []; // TODO: Make this only apply to how much colors are in a palette, a lot of note buffers can cause useless CPU overhead, also a lot of notes in a buffer is bad because there are limits
+        private List<NoteColorVertexBuffer> _noteColorVertexBuffers = [];
         private DeviceBuffer _uniformBuffer;
         private DeviceBuffer _uniformBufferComposite;
         private DeviceBuffer _fullscreenQuadBuffer;
@@ -36,7 +36,7 @@ namespace PhosphorMP.Rendering
         //private Sampler _sampler;
         private Matrix4x4 _projectionMatrix;
 
-        public static readonly Vector2[] QuadTexCoords = [
+        private static readonly Vector2[] QuadTexCoords = [
             new Vector2(0, 0), // top-left
             new Vector2(1, 0), // top-right
             new Vector2(1, 1), // bottom-right
@@ -453,7 +453,8 @@ namespace PhosphorMP.Rendering
         private float GetVerticalPositionFromTick(long tick)
         {
             float relativeTick = tick - Logic.CurrentTick;
-            float yPos = VisualizationFramebuffer.Base.Height - (relativeTick * RendererSettings.ScrollSpeed);
+            float normalizedTick = relativeTick * (960f / Logic.CurrentMidiFile.TimeDivision);
+            float yPos = VisualizationFramebuffer.Base.Height - (normalizedTick * RendererSettings.ScrollSpeed);
             return yPos;
         }
 

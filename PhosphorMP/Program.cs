@@ -1,5 +1,4 @@
 ﻿using System.Diagnostics;
-using PhosphorMP.Audio;
 using PhosphorMP.Rendering;
 using PhosphorMP.Rendering.Enums;
 
@@ -17,9 +16,9 @@ namespace PhosphorMP
                     switch (fd.DeltaTimeType)
                     {
                         case FramedumpDeltaTimeType.NonRealtime:
-                            return 1f / fd.FPS;
+                            return 1f / fd.Fps;
                         case FramedumpDeltaTimeType.RealtimeSlowdown:
-                            throw new NotImplementedException();
+                            return Math.Max(DeltaTime, 1f / fd.Fps);
                     }
                 }
                 return DeltaTime;
@@ -30,10 +29,10 @@ namespace PhosphorMP
         
         public static ParallelOptions ParallelOptions { get; private set; } = new ParallelOptions
         {
-            MaxDegreeOfParallelism = Environment.ProcessorCount * 16, // TODO: Make this internally customizable
+            MaxDegreeOfParallelism = Environment.ProcessorCount * 2, // TODO: Make this internally customizable
             TaskScheduler = null // TODO: Tune this later
         };
-
+        
         static void Main() // TODO: Console window Title Suffix field
         {
             Console.WriteLine($"Using {Environment.ProcessorCount * 16} threads by default");

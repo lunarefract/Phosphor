@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using C5;
 using FastLINQ;
 using PhosphorMP.Extensions;
@@ -19,6 +20,7 @@ namespace PhosphorMP.Parser
         public TimeSpan Length { get; private set; }
         public long LastParsedTick { get; private set; } = 0;
         public List<TempoChangeEvent> TempoChanges { get; } = [];
+        public double StartingTickrate { get; private set; }
         public string FilePath { get; init; }
         public string FileName => Path.GetFileName(FilePath);
         public const int FileStreamBufferSize = 1024 * 1024; // 1 MB buffer (default is 4 KB)
@@ -66,6 +68,7 @@ namespace PhosphorMP.Parser
             TempoChanges.Sort((a, b) => a.Tick.CompareTo(b.Tick)); // TODO: Add parser stage for this
 
             Length = TimeSpan.FromSeconds(GetTimeInSeconds(TickCount));
+            StartingTickrate = GetTickRateAtTick(-1);
             Utils.Utils.FreeGarbageHarder();
             Console.WriteLine($"Parsed with {TrackCount} (Header: {TrackCountHeader}) tracks, {TickCount} ticks ({Utils.Utils.FormatTime(Length)}) and {TempoChanges.Count} tempo changes with PPQ of {TimeDivision} and {NoteCount} notes, streaming prepared.");
             ParserStats.Stage = ParserStage.Streaming;
@@ -167,6 +170,13 @@ namespace PhosphorMP.Parser
             }
 
             return totalTimeSeconds;
+        }
+        
+        public double GetTickRateAtTick(long tick)
+        {
+            int tempo = GetCurrentTempoAtTick(tick); // microseconds per quarter note
+            double ticksPerSecond = TimeDivision * (1_000_000.0 / tempo);
+            return ticksPerSecond;
         }
 
         private void ParseHeader()

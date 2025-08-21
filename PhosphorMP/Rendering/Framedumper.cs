@@ -26,7 +26,7 @@ namespace PhosphorMP.Rendering
             }
         }
 
-        public uint FPS
+        public uint Fps
         {
             get => _fps;
             set
@@ -57,6 +57,11 @@ namespace PhosphorMP.Rendering
         public void HandleFrame()
         {
             if (!Active) return;
+            if (!Logic.Singleton.Playing)
+            {
+                Active = false;
+                return;
+            }
             Renderer.Singleton.VisualizationFramebuffer.CaptureOutputAsync(Path.Combine(Directory.GetCurrentDirectory(), "framedump", $"{FrameCount}.png"));
             FrameCount++;
         }
