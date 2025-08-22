@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using C5;
 using PhosphorMP.Parser;
 using PhosphorMP.Rendering.Structs;
+using PhosphorMP.Utils;
 using Veldrid;
 using Veldrid.Sdl2;
 using Veldrid.StartupUtilities;
@@ -85,7 +86,7 @@ namespace PhosphorMP.Rendering
             
             Window.Singleton.BaseSdl2Window.Resized += HandleWindowResize;
             if (BaseWindow == null) throw new NullReferenceException("Window is null");
-            // ln -s /usr/lib/x86_64-linux-gnu/libdl.so.2 /usr/lib/x86_64-linux-gnu/libdl.so
+            // ln -s /usr/lib/x86_64-linux-gnu/libdl.so.2 /usr/lib/x86_64-linux-gnu/libdl.so (segfaults ???????????????)
 #if  WINDOWS
             GraphicsDevice = VeldridStartup.CreateGraphicsDevice(BaseWindow, options, GetCorrectBackend());
 #else
@@ -95,11 +96,11 @@ namespace PhosphorMP.Rendering
             }
             catch (Exception e)
             {
-                Console.Error.WriteLine(e);
+                Log.WriteLine(e.ToString());
                 if (e.Message.Contains("Vulkan.VulkanNative"))
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine(@"
+                    Log.WriteLine(@"
 // ================================================================================
 //  Veldrid, the graphics rendering wrapper we use was unable to load 'libdl',
 //  which is required for Vulkan backend.
@@ -149,7 +150,7 @@ namespace PhosphorMP.Rendering
             UpdateUniforms();
             UpdateUniforms(true);
 
-            Console.WriteLine($"Window resized to {width}x{height}");
+            Log.WriteLine($"Window resized to {width}x{height}");
         }
 
         private Uniforms FillUniforms()
@@ -294,14 +295,14 @@ namespace PhosphorMP.Rendering
         {
             if (Framedumper.Active) // TODO: Remove and make it into overlay placeholder
             {
-                Console.WriteLine("Rendering speed: " + Framedumper.Speed);
+                Log.WriteLine("Rendering speed: " + Framedumper.Speed);
 
                 double totalSeconds = Logic.CurrentMidiFile.GetTimeInSeconds(Logic.CurrentMidiFile.TickCount);
                 double currentSeconds = Logic.CurrentMidiFile.GetTimeInSeconds(Logic.CurrentTick);
                 double remainingSeconds = totalSeconds - currentSeconds;
                 double etaSeconds = remainingSeconds / Framedumper.Speed;
-                Console.WriteLine("ETA Completed: " + Utils.Utils.FormatTime(TimeSpan.FromSeconds(etaSeconds))); // TODO: Fix crash while trying to render when playback has never been started
-                Console.WriteLine("Frames to save queue: " + VisualizationFramebuffer.SaveQueue.Count);
+                Log.WriteLine("ETA Completed: " + Utils.Utils.FormatTime(TimeSpan.FromSeconds(etaSeconds))); // TODO: Fix crash while trying to render when playback has never been started
+                Log.WriteLine("Frames to save queue: " + VisualizationFramebuffer.SaveQueue.Count);
             }
             var input = BaseWindow.PumpEvents();
             
