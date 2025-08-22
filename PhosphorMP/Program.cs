@@ -35,7 +35,7 @@ namespace PhosphorMP
         
         static void Main() // TODO: Console window Title Suffix field
         {
-            Console.WriteLine($"Using {Environment.ProcessorCount * 16} threads by default");
+            //Console.WriteLine($"Using {Environment.ProcessorCount * 16} threads by default");
             var config = new SerializableConfig(true);
             var logic = new Logic();
             var window = new Window();

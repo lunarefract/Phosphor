@@ -63,12 +63,63 @@ namespace PhosphorMP.Rendering
                 }
             });
         }
+
+        private GraphicsBackend GetCorrectBackend() // TODO: Extend this further
+        {
+            return GraphicsBackend.Vulkan;
+        }
         
         private void Init()
         {
+            var options = new GraphicsDeviceOptions(
+#if DEBUG
+                debug: true,          // <--- enables validation layer debug output
+#else
+                debug: false,
+#endif
+                swapchainDepthFormat: null,
+                syncToVerticalBlank: false,
+                resourceBindingModel: ResourceBindingModel.Improved,
+                preferStandardClipSpaceYDirection: true,
+                preferDepthRangeZeroToOne: true); // PATCH: Support for depth/luma mask later
+            
             Window.Singleton.BaseSdl2Window.Resized += HandleWindowResize;
             if (BaseWindow == null) throw new NullReferenceException("Window is null");
-            GraphicsDevice = VeldridStartup.CreateGraphicsDevice(BaseWindow, GraphicsBackend.OpenGL);
+            // ln -s /usr/lib/x86_64-linux-gnu/libdl.so.2 /usr/lib/x86_64-linux-gnu/libdl.so
+#if  WINDOWS
+            GraphicsDevice = VeldridStartup.CreateGraphicsDevice(BaseWindow, options, GetCorrectBackend());
+#else
+            try
+            {
+                GraphicsDevice = VeldridStartup.CreateGraphicsDevice(BaseWindow, options, GetCorrectBackend());
+            }
+            catch (Exception e)
+            {
+                Console.Error.WriteLine(e);
+                if (e.Message.Contains("Vulkan.VulkanNative"))
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine(@"
+// ================================================================================
+//  Veldrid, the graphics rendering wrapper we use was unable to load 'libdl',
+//  which is required for Vulkan backend.
+// 
+//  On many Linux distributions, only `libdl.so.2` is shipped by default, but 
+//  Veldrid expects a plain `libdl.so` symlink.
+// 
+//  To fix this issue, run the following command as root user or using sudo:
+// 
+//    ln -s /usr/lib/libdl.so.2 /usr/lib/libdl.so
+// 
+//  If you're on a different architecture or distro, adjust the path accordingly.
+//  After creating the symlink, start the application again.
+// ================================================================================
+");
+                    Console.ReadKey();
+                    Environment.Exit(1);
+#endif
+                }
+            }
             ResourceFactory = GraphicsDevice.ResourceFactory;
             VisualizationFramebuffer = new VisualizationFramebuffer();
             _projectionMatrix = Matrix4x4.CreateOrthographicOffCenter(
